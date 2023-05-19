@@ -80,11 +80,11 @@ class DifussionTraining(SupervisedTemplate):
         """
         return self._criterion(self.noise_x, self.mb_output)
     
-    def forward(self):
-        """
-        Forward pass.
-        """
-        return self.model(self.mb_x, self.t_x, self.noise_x)
+    # def forward(self):
+    #     """
+    #     Forward pass.
+    #     """
+    #     return self.model(self.mb_x, self.t_x, self.noise_x)
     
     def training_epoch(self, **kwargs):
         """
@@ -109,9 +109,9 @@ class DifussionTraining(SupervisedTemplate):
             self._before_forward(**kwargs)
 
             # Sample noise
-            self.t_x = torch.randint(0, self.timesteps, (batch_size,), device=self.device).long()
-            self.noise_x = torch.randn_like(self.mb_x)
-            self.mb_output, _ = self.forward()
+            # self.t_x = torch.randint(0, self.timesteps, (batch_size,), device=self.device).long()
+            # self.noise_x = torch.randn_like(self.mb_x)
+            self.mb_output, self.noise_x = self.forward()
 
             self._after_forward(**kwargs)
 

@@ -64,7 +64,7 @@ def main(args):
     )
 
     # --- BENCHMARK CREATION
-    benchmark = SplitMNIST(n_experiences=5, seed=42)
+    benchmark = SplitMNIST(n_experiences=2, seed=42)
     # ---------
 
     # MODEL CREATION
@@ -92,9 +92,9 @@ def main(args):
     generator_strategy = DifussionTraining(
         generator_model,
         torch.optim.Adam(generator_model.parameters(), lr=0.003),
-        train_mb_size=128,
-        train_epochs=4,
-        eval_mb_size=128,
+        train_mb_size=256,
+        train_epochs=2,
+        eval_mb_size=256,
         device=device,
         evaluator=eval_plugin,
         timesteps=args.timesteps,
@@ -109,7 +109,7 @@ def main(args):
         torch.optim.Adam(model.parameters(), lr=0.003),
         CrossEntropyLoss(),
         train_mb_size=256,
-        train_epochs=4,
+        train_epochs=1,
         eval_mb_size=256,
         device=device,
         evaluator=eval_plugin,

@@ -146,6 +146,10 @@ class DiffusionModel(nn.Module):
             return samples
     
     def forward(self, x_start, t, noise=None):
+        batch_size = x_start.shape[0]
+        device = next(self.denoise_model.parameters()).device
+        t = torch.randint(0, self.timesteps, (batch_size,), device=device).long()
+        
         if noise is None:
             noise = torch.randn_like(x_start)
 
