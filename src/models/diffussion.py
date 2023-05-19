@@ -39,9 +39,12 @@ def sigmoid_beta_schedule(timesteps):
 
 
 class DiffusionModel(nn.Module):
-    def __init__(self, denoise_model, timesteps:int = 300):
+    def __init__(self, denoise_model, shape: tuple, timesteps:int = 300):
         super().__init__()
         self.denoise_model = denoise_model
+        self.shape = shape
+        self.timesteps = timesteps
+
         # define beta schedule
         self.betas = linear_beta_schedule(timesteps=timesteps)
 
@@ -124,12 +127,29 @@ class DiffusionModel(nn.Module):
         img = torch.randn(shape, device=device)
         imgs = []
 
-        for i in tqdm(reversed(range(0, timesteps)), desc='sampling loop time step', total=timesteps):
+        for i in tqdm(reversed(range(0, timesteps)), desc='Sampling loop time step', total=timesteps):
             img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), i)
-            imgs.append(img.cpu().numpy())
+            imgs.append(img)
 
         return imgs
 
     @torch.no_grad()
-    def sample(self, image_size: int, batch_size: int = 16, channels: int = 3, timesteps: int = 300):
-        return self.p_sample_loop(shape=(batch_size, channels, image_size, image_size), timesteps=timesteps)
+    def generate(self, batch_size: int = 16, timesteps: int = None, only_last=True):
+        if timesteps is None:
+            timesteps = self.timesteps
+
+        samples = self.p_sample_loop(shape=(batch_size, self.shape[0], self.shape[1], self.shape[2]), timesteps=timesteps)
+
+        if only_last:
+            return samples[-1]
+        else:
+            return samples
+    
+    def forward(self, x_start, t, noise=None):
+        if noise is None:
+            noise = torch.randn_like(x_start)
+
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        predicted_noise = self.denoise_model(x_noisy, t)
+
+        return predicted_noise, noise

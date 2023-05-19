@@ -78,8 +78,7 @@ def main(args):
             bar.set_postfix(loss=loss.item())
 
         # Sample from the model
-        all_images = difussion_model.sample(args.image_size, batch_size=4, channels=args.channels, timesteps=args.timesteps)
-        all_images = torch.asarray(all_images)[-1,:,:,:]
+        all_images = difussion_model.generate(args.image_size, batch_size=4, channels=args.channels, timesteps=args.timesteps)
         all_images = (all_images + 1) * 0.5
         save_image(all_images, str(results_folder / f'sample-{epoch}.png'), nrow = 6)
 
