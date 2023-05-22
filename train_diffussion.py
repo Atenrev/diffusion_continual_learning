@@ -16,9 +16,9 @@ from src.datasets.fashion_mnist import create_dataloader
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image_size", type=int, default=28)
-    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--channels", type=int, default=1)
-    parser.add_argument("--timesteps", type=int, default=300)
+    parser.add_argument("--timesteps", type=int, default=1000)
     parser.add_argument("--epochs", type=int, default=6)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
@@ -50,9 +50,9 @@ def main(args):
     )
     denoise_model.to(device)
 
-    difussion_model = DiffusionModel(denoise_model, args.timesteps)
+    difussion_model = DiffusionModel(denoise_model, (1, 28, 28), args.timesteps)
 
-    optimizer = Adam(denoise_model.parameters(), lr=1e-3)
+    optimizer = Adam(denoise_model.parameters(), lr=3e-4)
 
     dataloader = create_dataloader(args.batch_size)
 
@@ -78,8 +78,8 @@ def main(args):
             bar.set_postfix(loss=loss.item())
 
         # Sample from the model
-        all_images = difussion_model.generate(args.image_size, batch_size=4, channels=args.channels, timesteps=args.timesteps)
-        all_images = (all_images + 1) * 0.5
+        all_images = difussion_model.generate(batch_size=10, timesteps=20)
+        # all_images = (all_images + 1) * 0.5
         save_image(all_images, str(results_folder / f'sample-{epoch}.png'), nrow = 6)
 
 

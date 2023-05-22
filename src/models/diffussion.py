@@ -127,8 +127,9 @@ class DiffusionModel(nn.Module):
         img = torch.randn(shape, device=device)
         imgs = []
 
-        for i in tqdm(reversed(range(0, timesteps)), desc='Sampling loop time step', total=timesteps):
-            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), i)
+        for i in reversed(range(0, timesteps)):
+            i_adjusted = self.timesteps // timesteps * i
+            img = self.p_sample(img, torch.full((b,), i_adjusted, device=device, dtype=torch.long), i_adjusted)
             imgs.append(img)
 
         return imgs
@@ -140,15 +141,32 @@ class DiffusionModel(nn.Module):
 
         samples = self.p_sample_loop(shape=(batch_size, self.shape[0], self.shape[1], self.shape[2]), timesteps=timesteps)
 
+        # import matplotlib.animation as animation
+        # from matplotlib import pyplot as plt
+
+        # random_index = 0
+
+        # fig = plt.figure()
+        # ims = []
+        # for i in range(timesteps):
+        #     im = plt.imshow(samples[i][random_index].cpu().numpy().reshape(28, 28, 1), cmap="gray", animated=True)
+        #     ims.append([im])
+
+        # animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
+        # animate.save('diffusion.gif')
+        # plt.show()
+
         if only_last:
             return samples[-1]
         else:
             return samples
     
-    def forward(self, x_start, t, noise=None):
+    def forward(self, x_start, t=None, noise=None):
         batch_size = x_start.shape[0]
         device = next(self.denoise_model.parameters()).device
-        t = torch.randint(0, self.timesteps, (batch_size,), device=device).long()
+
+        if t is None:
+            t = torch.randint(0, self.timesteps, (batch_size,), device=device).long()
         
         if noise is None:
             noise = torch.randn_like(x_start)
