@@ -72,6 +72,7 @@ class EfficientGenerativeReplayPlugin(SupervisedPlugin):
     ):
         """
         Make deep copies of generator and solver before training new experience.
+        Then, generate replay data and store it in the strategy's replay buffer.
         """
         if self.untrained_solver:
             # The solver needs to be trained before labelling generated data and
@@ -82,6 +83,58 @@ class EfficientGenerativeReplayPlugin(SupervisedPlugin):
         if not self.model_is_generator:
             self.old_model = deepcopy(strategy.model)
             self.old_model.eval()
+
+        if self.untrained_solver:
+            # The solver needs to be trained before labelling generated data and
+            # the generator needs to be trained before we can sample.
+            return
+
+        if self.replay_size:
+            number_replays_to_generate = self.replay_size
+        else:
+            if self.increasing_replay_size:
+                number_replays_to_generate = self.generator_strategy.train_mb_size * (
+                    strategy.experience.current_experience
+                ) + self.generator_strategy.train_mb_size
+            else:
+                number_replays_to_generate = self.generator_strategy.train_mb_size * 2
+
+        print("Generating replay data...")
+        with torch.no_grad():
+            # Generate replay data in batches of max size train_mb_size
+            # and concatenate them to a single replay buffer
+            for i in range(
+                number_replays_to_generate // self.generator_strategy.train_mb_size
+            ):
+                if i == 0:
+                    self.replay_buffer = self.old_generator.generate(
+                        self.generator_strategy.train_mb_size
+                    ).to(strategy.device)
+                else:
+                    self.replay_buffer = torch.cat(
+                        [
+                            self.replay_buffer,
+                            self.old_generator.generate(
+                                self.generator_strategy.train_mb_size
+                            ).to(strategy.device),
+                        ],
+                        dim=0,
+                    )
+
+            # self.replay_buffer = self.old_generator.generate(number_replays_to_generate).to(
+            #     strategy.device
+            # )
+
+        print("Labelling replay data...")
+        # extend y with predicted labels (or mock labels if model==generator)
+        if not self.model_is_generator:
+            with torch.no_grad():
+                self.replay_output = self.old_model(self.replay_buffer).argmax(dim=-1)
+        else:
+            # Mock labels:
+            self.replay_output = torch.zeros(self.replay_buffer.shape[0])
+
+        self.replay_output = self.replay_output.to(strategy.device)
 
     def after_training_exp(
         self, strategy, num_workers: int = 0, shuffle: bool = True, **kwargs
@@ -94,44 +147,45 @@ class EfficientGenerativeReplayPlugin(SupervisedPlugin):
 
     def before_training_iteration(self, strategy, **kwargs):
         """
-        Generating and appending replay data to current minibatch before
+        Appending replay data to current minibatch before
         each training iteration.
         """
         if self.untrained_solver:
             # The solver needs to be trained before labelling generated data and
             # the generator needs to be trained before we can sample.
             return
-        # determine how many replay data points to generate
-        if self.replay_size:
-            number_replays_to_generate = self.replay_size
-        else:
-            if self.increasing_replay_size:
-                number_replays_to_generate = len(strategy.mbatch[0]) * (
-                    strategy.experience.current_experience
-                )
-            else:
-                number_replays_to_generate = len(strategy.mbatch[0])
-        # extend X with replay data
-        replay = self.old_generator.generate(number_replays_to_generate).to(
-            strategy.device
-        )
-        strategy.mbatch[0] = torch.cat([strategy.mbatch[0], replay], dim=0)
-        # extend y with predicted labels (or mock labels if model==generator)
-        if not self.model_is_generator:
-            with torch.no_grad():
-                replay_output = self.old_model(replay).argmax(dim=-1)
-        else:
-            # Mock labels:
-            replay_output = torch.zeros(replay.shape[0])
+        
+        batch_size = len(strategy.mbatch[0])
+        replay_indices = torch.randperm(self.replay_buffer.shape[0])[:batch_size]
+        
+        strategy.mbatch[0] = torch.cat([strategy.mbatch[0], self.replay_buffer[replay_indices]], dim=0)
+        
         strategy.mbatch[1] = torch.cat(
-            [strategy.mbatch[1], replay_output.to(strategy.device)], dim=0
+            [strategy.mbatch[1], self.replay_output[replay_indices]], dim=0
         )
         # extend task id batch (we implicitley assume a task-free case)
         strategy.mbatch[-1] = torch.cat(
             [
                 strategy.mbatch[-1],
-                torch.ones(replay.shape[0]).to(strategy.device)
+                torch.ones(self.replay_buffer.shape[0]).to(strategy.device)
                 * strategy.mbatch[-1][0],
             ],
             dim=0,
         )
+
+
+class TrainDiffusionGeneratorAfterExpPlugin(SupervisedPlugin):
+    """
+    TrainGeneratorAfterExpPlugin makes sure that after each experience of
+    training the solver of a scholar model, we also train the generator on the
+    data of the current experience.
+    """
+
+    def after_training_exp(self, strategy, **kwargs):
+        """
+        The training method expects an Experience object
+        with a 'dataset' parameter.
+        """
+        for plugin in strategy.plugins:
+            if type(plugin) is EfficientGenerativeReplayPlugin:
+                plugin.generator_strategy.train(strategy.experience)

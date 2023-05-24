@@ -127,7 +127,7 @@ class DiffusionModel(nn.Module):
         img = torch.randn(shape, device=device)
         imgs = []
 
-        for i in reversed(range(0, timesteps)):
+        for i in tqdm(reversed(range(0, timesteps)), desc="Sampling", total=timesteps):
             i_adjusted = self.timesteps // timesteps * i
             img = self.p_sample(img, torch.full((b,), i_adjusted, device=device, dtype=torch.long), i_adjusted)
             imgs.append(img)

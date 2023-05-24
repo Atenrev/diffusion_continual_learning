@@ -17,7 +17,7 @@ from avalanche.training.templates.base import BaseTemplate
 from avalanche.training.templates import SupervisedTemplate
 from avalanche.logging import InteractiveLogger
 
-from src.continual_learning.plugins import EfficientGenerativeReplayPlugin
+from src.continual_learning.plugins import EfficientGenerativeReplayPlugin, TrainDiffusionGeneratorAfterExpPlugin
 
 
 class GenerativeReplayWithDiffusion(SupervisedTemplate):
@@ -96,7 +96,7 @@ class GenerativeReplayWithDiffusion(SupervisedTemplate):
             increasing_replay_size=increasing_replay_size,
         )
 
-        tgp = TrainGeneratorAfterExpPlugin()
+        tgp = TrainDiffusionGeneratorAfterExpPlugin()
 
         if plugins is None:
             plugins = [tgp, rp]
@@ -117,43 +117,6 @@ class GenerativeReplayWithDiffusion(SupervisedTemplate):
             eval_every=eval_every,
             **base_kwargs
         )
-
-    # def make_train_dataloader(
-    #     self,
-    #     num_workers=0,
-    #     shuffle=True,
-    #     pin_memory=True,
-    #     persistent_workers=False,
-    #     **kwargs
-    # ):
-    #     """Data loader initialization.
-
-    #     Called at the start of each learning experience after the dataset
-    #     adaptation.
-
-    #     :param num_workers: number of thread workers for the data loading.
-    #     :param shuffle: True if the data should be shuffled, False otherwise.
-    #     :param pin_memory: If True, the data loader will copy Tensors into CUDA
-    #         pinned memory before returning them. Defaults to True.
-    #     """
-
-    #     other_dataloader_args = {}
-
-    #     if parse_version(torch.__version__) >= parse_version("1.7.0"):
-    #         other_dataloader_args["persistent_workers"] = persistent_workers
-    #     for k, v in kwargs.items():
-    #         other_dataloader_args[k] = v
-
-    #     self.dataloader = TaskBalancedDataLoader(
-    #         self.adapted_dataset,
-    #         oversample_small_groups=True,
-    #         num_workers=num_workers,
-    #         batch_size=self.train_mb_size,
-    #         shuffle=shuffle,
-    #         pin_memory=pin_memory,
-    #         **other_dataloader_args
-    #     )
-
 
 def get_default_vae_logger():
     return EvaluationPlugin(loggers=[InteractiveLogger()])
@@ -235,9 +198,7 @@ class DifussionTraining(SupervisedTemplate):
 
         :param kwargs:
         :return:
-        """   
-        print("Training Difussion Generator")
-        
+        """           
         for self.mbatch in tqdm(self.dataloader):
             batch_size = self.mbatch[0].shape[0]
 

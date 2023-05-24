@@ -42,10 +42,13 @@ from src.models.unet import Unet
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image_size", type=int, default=28)
-    parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--channels", type=int, default=1)
-    parser.add_argument("--timesteps", type=int, default=300)
-    parser.add_argument("--epochs", type=int, default=6)
+    parser.add_argument("--timesteps", type=int, default=500)
+    parser.add_argument("--epochs_generator", type=int, default=16)
+    parser.add_argument("--epochs_solver", type=int, default=4)
+    parser.add_argument("--generator_lr", type=float, default=3e-4)
+    parser.add_argument("--solver_lr", type=float, default=3e-3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--cuda",
@@ -65,7 +68,7 @@ def main(args):
     )
 
     # --- BENCHMARK CREATION
-    benchmark = SplitMNIST(n_experiences=2, seed=42)
+    benchmark = SplitMNIST(n_experiences=5, seed=42)
     # ---------
 
     # MODEL CREATION
@@ -92,29 +95,30 @@ def main(args):
     # CREATE THE GENERATOR STRATEGY INSTANCE (DiffusionTraining)
     generator_strategy = DifussionTraining(
         generator_model,
-        torch.optim.Adam(denoise_model.parameters(), lr=1e-4),
+        torch.optim.Adam(denoise_model.parameters(), lr=args.generator_lr),
         train_mb_size=args.batch_size,
-        train_epochs=1,
+        train_epochs=args.epochs_generator,
         eval_mb_size=args.batch_size,
         device=device,
         evaluator=eval_plugin,
         timesteps=args.timesteps,
         plugins=[
-            EfficientGenerativeReplayPlugin()
+            EfficientGenerativeReplayPlugin(increasing_replay_size=True)
         ],
     )
 
     # CREATE THE STRATEGY INSTANCE (GenerativeReplay)
     cl_strategy = GenerativeReplayWithDiffusion(
         model,
-        torch.optim.Adam(model.parameters(), lr=3e-3),
+        torch.optim.Adam(model.parameters(), lr=args.solver_lr),
         CrossEntropyLoss(),
-        train_mb_size=args.batch_size,
-        train_epochs=4,
+        train_mb_size=args.batch_size, # Caution: the batch size is doubled because of the replay
+        train_epochs=args.epochs_solver,
         eval_mb_size=args.batch_size,
         device=device,
         evaluator=eval_plugin,
         generator_strategy=generator_strategy,
+        increasing_replay_size=True,
     )
 
     # OUTPUT DIRECTORY
@@ -124,7 +128,7 @@ def main(args):
     # TRAINING LOOP
     print("Starting experiment...")
     results = []
-    n_samples = 10
+    n_samples = 20
     for experience in benchmark.train_stream:
         print("Start of experience ", experience.current_experience)
         cl_strategy.train(experience)
@@ -133,8 +137,10 @@ def main(args):
         print("Computing accuracy on the whole test set")
         results.append(cl_strategy.eval(benchmark.test_stream))
         
-        samples = cl_strategy.generator_strategy.model.generate(n_samples)
-        # samples = (samples + 1) * 0.5
+        print("Computing generated samples and saving them to disk")
+        with torch.no_grad():
+            samples = cl_strategy.generator_strategy.model.generate(n_samples)
+
         samples = samples.detach().cpu().numpy()
 
         # Save plot of generated samples
