@@ -15,10 +15,9 @@ and their respective helper functions.
 
 """
 
-from abc import abstractmethod
-from matplotlib import transforms
 import torch
 import torch.nn as nn
+from abc import abstractmethod
 from torchvision import transforms
 from avalanche.models.utils import MLP, Flatten
 from avalanche.models.base_model import BaseModel
@@ -73,6 +72,8 @@ class VAEMLPEncoder(nn.Module):
 
     def forward(self, x, y=None):
         x = self.encode(x)
+        if torch.isnan(x).any():
+            print("NAN in VAE")
         mean = self.z_mean(x)
         logvar = self.z_log_var(x)
         return x, mean, logvar
@@ -101,11 +102,16 @@ class VAEMLPDecoder(nn.Module):
         self.decode.append(nn.Linear(prev_size, flattened_size))
         self.decode.append(nn.Sigmoid())
         self.decode = nn.Sequential(*self.decode)
+        # self.inv_trans = transforms.Compose(
+        #     [transforms.Normalize((0.1307,), (0.3081,))]
+        # )
 
     def forward(self, z, y=None):
         if y is None:
+            # return self.inv_trans(self.decode(z).view(-1, *self.shape))
             return self.decode(z).view(-1, *self.shape)
         else:
+            # return self.inv_trans(self.decode(torch.cat((z, y), dim=1)).view(-1, *self.shape))
             return self.decode(torch.cat((z, y), dim=1)).view(-1, *self.shape)
 
 
@@ -158,7 +164,10 @@ class MlpVAE(Generator, nn.Module):
             if batch_size
             else torch.randn((1, self.dim)).to(self.device)
         )
-        res = self.decoder(z)
+
+        with torch.no_grad():
+            res = self.decoder(z)
+
         if not batch_size:
             res = res.squeeze(0)
         return res
@@ -171,13 +180,53 @@ class MlpVAE(Generator, nn.Module):
         sigma = 0.5 * torch.exp(logvar)
         return mean + eps * sigma
 
-    def forward(self, x):
+    def forward(self, x_o):
         """
         Forward.
         """
-        x, mean, logvar = self.encoder(x)
+        x, mean, logvar = self.encoder(x_o)
         z = self.sampling(mean, logvar)
-        return self.decoder(z), mean, logvar
+        x_hat = self.decoder(z)
+
+        if torch.isnan(x_hat).any():
+            print("NAN in VAE")
+
+        return x_hat, mean, logvar
+
+
+BCE_loss = nn.BCELoss(reduction="mean")
+MSE_loss = nn.MSELoss(reduction="mean")
+
+
+def VAE_loss(X, forward_output):
+    """
+    Loss function of a VAE using mean squared error for reconstruction loss.
+    This is the criterion for VAE training loop.
+
+    :param X: Original input batch.
+    :param forward_output: Return value of a VAE.forward() call.
+                Triplet consisting of (X_hat, mean. logvar), ie.
+                (Reconstructed input after subsequent Encoder and Decoder,
+                mean of the VAE output distribution,
+                logvar of the VAE output distribution)
+    """
+    from torch.nn import functional as F
+    X_hat, mean, logvar = forward_output
+    batch_size = X.shape[0]
+
+    if batch_size == 0:
+        return torch.tensor(0.0)
+    
+    reconstruction_loss = MSE_loss(X_hat, X)
+    # reconstruction_loss /= X.shape[1] * X.shape[2] * X.shape[3]
+    # reconstruction_loss = F.binary_cross_entropy(input=X_hat.view(batch_size, -1), target=X.view(batch_size, -1),
+    #                                         reduction='none')
+    # reconstruction_loss = torch.mean(reconstruction_loss, dim=1)
+    # reconstruction_loss = torch.mean(reconstruction_loss)
+    KL_divergence = 0.5 * torch.sum(-1 - logvar + torch.exp(logvar) + mean ** 2, dim=1)
+    KL_divergence = torch.mean(KL_divergence)
+    KL_divergence /= X.shape[1] * X.shape[2] * X.shape[3]
+    return reconstruction_loss + KL_divergence
 
 
 __all__ = ["MlpVAE"]

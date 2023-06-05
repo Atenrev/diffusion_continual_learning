@@ -50,7 +50,6 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
         self.model_is_generator = False
         self.replay_size = replay_size
         self.increasing_replay_size = increasing_replay_size
-        # self.T = T
 
     def before_training(self, strategy, *args, **kwargs):
         """
@@ -81,27 +80,6 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
         if not self.model_is_generator:
             self.old_model = deepcopy(strategy.model)
             self.old_model.eval()
-
-        # Modify the strategy's criterion to weight the replay data
-        # according to number of tasks seen so far
-
-        # def weighted_criterion_classifier():
-        #     real_data_loss = strategy._criterion(strategy.mb_output[:self.current_batch_size], strategy.mb_y[:self.current_batch_size])
-        #     replay_data_loss = strategy._criterion(strategy.mb_output[self.current_batch_size:], strategy.mb_y[self.current_batch_size:])
-        #     replay_data_loss = replay_data_loss * self.T**2
-        #     return ((1/(strategy.experience.current_experience+1)) * real_data_loss
-        #             + (1 - (1/(strategy.experience.current_experience+1))) * replay_data_loss)
-        
-        # def weighted_criterion_generative():
-        #     real_data_loss = strategy.criterion(end=self.current_batch_size)
-        #     replay_data_loss = strategy.criterion(start=self.current_batch_size)
-        #     return ((1/(strategy.experience.current_experience+1)) * real_data_loss
-        #             + (1 - (1/(strategy.experience.current_experience+1))) * replay_data_loss)
-
-        # if self.model_is_generator:
-        #     strategy.criterion = weighted_criterion_generative
-        # else:
-        #     strategy.criterion = weighted_criterion_classifier
 
     def after_training_exp(
         self, strategy, num_workers: int = 0, shuffle: bool = True, **kwargs
@@ -140,9 +118,6 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
         if not self.model_is_generator:
             with torch.no_grad():
                 replay_output = self.old_model(replay)
-            # Scale logits by temperature according to M. van de Ven et al. (2020)
-            # replay_output = replay_output / self.T 
-            # replay_output = replay_output.softmax(dim=1)
         else:
             # Mock labels:
             replay_output = torch.zeros(replay.shape[0])
@@ -161,7 +136,7 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
             [strategy.mbatch[1], replay_output], dim=0
         )
 
-        # extend task id batch (we implicitley assume a task-free case)
+        # extend task id batch (we implicitly assume a task-free case)
         strategy.mbatch[-1] = torch.cat(
             [
                 strategy.mbatch[-1],

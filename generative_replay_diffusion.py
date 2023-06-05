@@ -7,7 +7,6 @@ import datetime
 from PIL import Image
 from torchvision import transforms
 from diffusers import UNet2DModel, DDIMScheduler, DDIMPipeline
-from diffusers.utils import logging
 from torch.nn import CrossEntropyLoss
 from avalanche.benchmarks import SplitMNIST
 from avalanche.models import SimpleMLP

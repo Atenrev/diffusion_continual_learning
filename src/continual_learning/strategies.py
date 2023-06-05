@@ -140,7 +140,7 @@ class WeightedSoftGenerativeReplay(SupervisedTemplate):
         mb_y_replay = mb_y_replay / self.T
         mb_y_replay = mb_y_replay.softmax(dim=1)
         real_data_loss = self._criterion(self.mb_output[:self.train_mb_size], self.mb_y[:self.train_mb_size])
-        replay_data_loss = self._criterion(self.mb_output[self.train_mb_size:], mb_y_replay.argmax(dim=1))
+        replay_data_loss = self._criterion(self.mb_output[self.train_mb_size:], mb_y_replay)
         replay_data_loss = replay_data_loss * self.T**2
         return ((1/(self.experience.current_experience+1)) * real_data_loss
                 + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss)

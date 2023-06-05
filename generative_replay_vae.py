@@ -22,9 +22,10 @@ import datetime
 
 from matplotlib import pyplot as plt
 from torch.optim import Adam
+from torchvision import transforms
 from torch.nn import CrossEntropyLoss
 from avalanche.benchmarks import SplitMNIST
-from avalanche.models import SimpleMLP, VAE_loss
+from avalanche.models import SimpleMLP
 from avalanche.evaluation.metrics import (
     forgetting_metrics,
     accuracy_metrics,
@@ -36,7 +37,7 @@ from avalanche.training.plugins import EvaluationPlugin
  
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
 from src.continual_learning.strategies import WeightedSoftGenerativeReplay, VAETraining
-from src.models.vae import MlpVAE
+from src.models.vae import MlpVAE, VAE_loss
 
 
 def __parse_args() -> argparse.Namespace:
@@ -47,7 +48,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs_generator", type=int, default=21) # 2000*128/12000 = 20
     parser.add_argument("--epochs_solver", type=int, default=21) 
     parser.add_argument("--generator_lr", type=float, default=0.001)
-    parser.add_argument("--generator_weight_decay", type=float, default=0.0001)
+    # parser.add_argument("--generator_weight_decay", type=float, default=0.0001)
     parser.add_argument("--solver_lr", type=float, default=0.001)
     parser.add_argument("--increasing_replay_size", type=bool, default=False)
     parser.add_argument("--replay_size", type=int, default=None)
@@ -71,11 +72,29 @@ def main(args):
     )
 
     # --- BENCHMARK CREATION
-    benchmark = SplitMNIST(n_experiences=5, seed=args.seed)
+    train_transform = transforms.Compose(
+        [
+            transforms.Resize((args.image_size, args.image_size), antialias=True),
+            # transforms.ToTensor(),
+            # transforms.Normalize([0.5], [0.5]),
+        ]
+    )
+    benchmark = SplitMNIST(
+        n_experiences=5, 
+        seed=args.seed,
+        train_transform=train_transform,
+        eval_transform=train_transform,
+    )
     # ---------
 
     # MODEL CREATION
     model = SimpleMLP(num_classes=benchmark.n_classes)
+    optimizer_classifier = Adam(
+        model.parameters(),
+        lr=args.solver_lr,
+        betas=(0.9, 0.999),
+        # weight_decay=args.solver_weight_decay,
+    )
 
     # GENERATOR STRATEGY
     generator = MlpVAE(
@@ -146,7 +165,7 @@ def main(args):
     # CREATE THE STRATEGY INSTANCE (GenerativeReplay)
     cl_strategy = WeightedSoftGenerativeReplay(
         model,
-        torch.optim.Adam(model.parameters(), lr=args.solver_lr),
+        optimizer_classifier,
         CrossEntropyLoss(),
         generator_strategy=generator_strategy,
         train_mb_size=args.batch_size,
