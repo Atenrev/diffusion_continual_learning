@@ -9,7 +9,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 from src.models.unet import Unet
-from src.models.diffussion import DiffusionModel
+from src.models.diffusion import DiffusionModel
 from src.datasets.fashion_mnist import create_dataloader
 
 

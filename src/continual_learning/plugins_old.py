@@ -3,13 +3,19 @@ from avalanche.core import SupervisedPlugin
 import torch
 
 
-class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
+class EfficientGenerativeReplayPlugin(SupervisedPlugin):
     """
     Experience generative replay plugin.
 
     Updates the current mbatch of a strategy before training an experience
     by sampling a generator model and concatenating the replay data to the
     current batch.
+
+    In this version of the plugin the number of replay samples is
+    increased with each new experience. Another way to implempent
+    the algorithm is by weighting the loss function and give more
+    importance to the replayed data as the number of experiences
+    increases. This will be implemented as an option for the user soon.
 
     :param generator_strategy: In case the plugin is applied to a non-generative
      model (e.g. a simple classifier), this should contain an Avalanche strategy
@@ -35,7 +41,7 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
         untrained_solver: bool = True,
         replay_size: int = None,
         increasing_replay_size: bool = False,
-        # T: float = 2.0,
+        T: float = 2.0,
     ):
         """
         Init.
@@ -50,7 +56,7 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
         self.model_is_generator = False
         self.replay_size = replay_size
         self.increasing_replay_size = increasing_replay_size
-        # self.T = T
+        self.T = T
 
     def before_training(self, strategy, *args, **kwargs):
         """
@@ -82,26 +88,74 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
             self.old_model = deepcopy(strategy.model)
             self.old_model.eval()
 
+        if self.replay_size:
+            number_replays_to_generate = self.replay_size
+        else:
+            if self.increasing_replay_size:
+                number_replays_to_generate = self.generator_strategy.train_mb_size * (
+                    strategy.experience.current_experience
+                ) + self.generator_strategy.train_mb_size
+            else:
+                number_replays_to_generate = self.generator_strategy.train_mb_size * 2
+
+        print("Generating replay data...")
+        with torch.no_grad():
+            # Generate replay data in batches of max size train_mb_size
+            # and concatenate them to a single replay buffer
+            for i in range(3):
+                if i == 0:
+                    self.replay_buffer = self.old_generator.generate(
+                        number_replays_to_generate // 3 #self.generator_strategy.train_mb_size
+                    ).to(strategy.device)
+                else:
+                    self.replay_buffer = torch.cat(
+                        [
+                            self.replay_buffer,
+                            self.old_generator.generate(
+                                number_replays_to_generate // 3 #self.generator_strategy.train_mb_size
+                            ).to(strategy.device),
+                        ],
+                        dim=0,
+                    )
+
+            # self.replay_buffer = self.old_generator.generate(number_replays_to_generate).to(
+            #     strategy.device
+            # )
+
+        print("Labelling replay data...")
+        # extend y with predicted labels (or mock labels if model==generator)
+        if not self.model_is_generator:
+            with torch.no_grad():
+                self.replay_output = self.old_model(self.replay_buffer) #.argmax(dim=-1)
+            # Scale logits by temperature according to M. van de Ven et al. (2020)
+            self.replay_output = self.replay_output / self.T 
+            self.replay_output = self.replay_output.softmax(dim=1)
+        else:
+            # Mock labels:
+            self.replay_output = torch.zeros(self.replay_buffer.shape[0])
+
+        self.replay_output = self.replay_output.to(strategy.device)
+
         # Modify the strategy's criterion to weight the replay data
         # according to number of tasks seen so far
 
-        # def weighted_criterion_classifier():
-        #     real_data_loss = strategy._criterion(strategy.mb_output[:self.current_batch_size], strategy.mb_y[:self.current_batch_size])
-        #     replay_data_loss = strategy._criterion(strategy.mb_output[self.current_batch_size:], strategy.mb_y[self.current_batch_size:])
-        #     replay_data_loss = replay_data_loss * self.T**2
-        #     return ((1/(strategy.experience.current_experience+1)) * real_data_loss
-        #             + (1 - (1/(strategy.experience.current_experience+1))) * replay_data_loss)
+        def weighted_criterion_classifier():
+            real_data_loss = strategy._criterion(strategy.mb_output[:self.current_batch_size], strategy.mb_y[:self.current_batch_size])
+            replay_data_loss = strategy._criterion(strategy.mb_output[self.current_batch_size:], strategy.mb_y[self.current_batch_size:])
+            replay_data_loss = replay_data_loss * self.T**2
+            return ((1/(strategy.experience.current_experience+1)) * real_data_loss
+                    + (1 - (1/(strategy.experience.current_experience+1))) * replay_data_loss)
         
-        # def weighted_criterion_generative():
-        #     real_data_loss = strategy.criterion(end=self.current_batch_size)
-        #     replay_data_loss = strategy.criterion(start=self.current_batch_size)
-        #     return ((1/(strategy.experience.current_experience+1)) * real_data_loss
-        #             + (1 - (1/(strategy.experience.current_experience+1))) * replay_data_loss)
+        def weighted_criterion_generative():
+            real_data_loss = strategy._criterion(strategy.mb_output[:self.current_batch_size], strategy.mb_y[:self.current_batch_size])
+            replay_data_loss = strategy._criterion(strategy.mb_output[self.current_batch_size:], strategy.mb_y[self.current_batch_size:])
+            return ((1/(strategy.experience.current_experience+1)) * real_data_loss
+                    + (1 - (1/(strategy.experience.current_experience+1))) * replay_data_loss)
 
-        # if self.model_is_generator:
-        #     strategy.criterion = weighted_criterion_generative
-        # else:
-        #     strategy.criterion = weighted_criterion_classifier
+        if self.model_is_generator:
+            strategy.criterion = weighted_criterion_generative
+        else:
+            strategy.criterion = weighted_criterion_classifier 
 
     def after_training_exp(
         self, strategy, num_workers: int = 0, shuffle: bool = True, **kwargs
@@ -119,53 +173,33 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
         """
         if self.untrained_solver:
             return
-        
+
         self.current_batch_size = len(strategy.mbatch[0])
-        
-        if self.replay_size:
-            number_replays_to_generate = self.replay_size
-        else:
-            if self.increasing_replay_size:
-                number_replays_to_generate = len(strategy.mbatch[0]) * (
-                    strategy.experience.current_experience
-                )
-            else:
-                number_replays_to_generate = len(strategy.mbatch[0])
+
+        if self.increasing_replay_size:
+            self.current_batch_size *= strategy.experience.current_experience
             
-        replay = self.old_generator.generate(number_replays_to_generate).to(strategy.device)
+        replay_indices = torch.randperm(self.replay_buffer.shape[0])[:self.current_batch_size]
         
-        strategy.mbatch[0] = torch.cat([strategy.mbatch[0], replay], dim=0)
+        strategy.mbatch[0] = torch.cat([strategy.mbatch[0], self.replay_buffer[replay_indices]], dim=0)
 
-        # extend y with predicted labels (or mock labels if model==generator)
-        if not self.model_is_generator:
-            with torch.no_grad():
-                replay_output = self.old_model(replay)
-            # Scale logits by temperature according to M. van de Ven et al. (2020)
-            # replay_output = replay_output / self.T 
-            # replay_output = replay_output.softmax(dim=1)
-        else:
-            # Mock labels:
-            replay_output = torch.zeros(replay.shape[0])
-
-        replay_output = replay_output.to(strategy.device)
-
-        if replay_output.ndim > 1:
+        if self.replay_output.ndim > 1:
             # If we are using a classification model, we one-hot encode the labels
             # of the training data (so we can use soft labels for the replay data)
             strategy.mbatch[1] = torch.nn.functional.one_hot(
-                        strategy.mbatch[1], num_classes=replay_output.shape[1]
+                        strategy.mbatch[1], num_classes=self.replay_output.shape[1]
                     ).to(strategy.device)
         
         # Then we append the replay data to the current minibatch
         strategy.mbatch[1] = torch.cat(
-            [strategy.mbatch[1], replay_output], dim=0
+            [strategy.mbatch[1], self.replay_output[replay_indices]], dim=0
         )
 
         # extend task id batch (we implicitley assume a task-free case)
         strategy.mbatch[-1] = torch.cat(
             [
                 strategy.mbatch[-1],
-                torch.ones(replay.shape[0]).to(strategy.device)
+                torch.ones(self.replay_buffer.shape[0]).to(strategy.device)
                 * strategy.mbatch[-1][0],
             ],
             dim=0,
@@ -185,5 +219,5 @@ class TrainDiffusionGeneratorAfterExpPlugin(SupervisedPlugin):
         with a 'dataset' parameter.
         """
         for plugin in strategy.plugins:
-            if type(plugin) is UpdatedGenerativeReplayPlugin:
+            if type(plugin) is EfficientGenerativeReplayPlugin:
                 plugin.generator_strategy.train(strategy.experience)

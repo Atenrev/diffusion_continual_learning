@@ -3,15 +3,16 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 
 
-def create_dataloader(batch_size: int = 128):
+def create_dataloader(batch_size: int = 128, transform: transforms.Compose = None):
     # load dataset from the hub
     dataset = load_dataset("mnist")
 
-    transform = transforms.Compose([
-            # transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            # transforms.Lambda(lambda t: (t * 2) - 1)
-    ])
+    if transform is None:
+        transform = transforms.Compose([
+                # transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                # transforms.Lambda(lambda t: (t * 2) - 1)
+        ])
 
     def apply_transforms(examples):
         examples["pixel_values"] = [transform(image.convert("L")) for image in examples["image"]]
