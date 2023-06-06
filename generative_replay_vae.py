@@ -32,11 +32,12 @@ from avalanche.evaluation.metrics import (
     loss_metrics,
     confusion_matrix_metrics,
 )
-from avalanche.logging import WandBLogger
+from avalanche.logging import WandBLogger, InteractiveLogger
 from avalanche.training.plugins import EvaluationPlugin
  
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
 from src.continual_learning.strategies import WeightedSoftGenerativeReplay, VAETraining
+from src.continual_learning.metrics import ExperienceFIDMetric
 from src.models.vae import MlpVAE, VAE_loss
 
 
@@ -45,10 +46,9 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--image_size", type=int, default=28)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--channels", type=int, default=1)
-    parser.add_argument("--epochs_generator", type=int, default=21) # 2000*128/12000 = 20
-    parser.add_argument("--epochs_solver", type=int, default=21) 
+    parser.add_argument("--epochs_generator", type=int, default=1) # 2000*128/12000 = ~21
+    parser.add_argument("--epochs_solver", type=int, default=1) 
     parser.add_argument("--generator_lr", type=float, default=0.001)
-    # parser.add_argument("--generator_weight_decay", type=float, default=0.0001)
     parser.add_argument("--solver_lr", type=float, default=0.001)
     parser.add_argument("--increasing_replay_size", type=bool, default=False)
     parser.add_argument("--replay_size", type=int, default=None)
@@ -75,8 +75,6 @@ def main(args):
     train_transform = transforms.Compose(
         [
             transforms.Resize((args.image_size, args.image_size), antialias=True),
-            # transforms.ToTensor(),
-            # transforms.Normalize([0.5], [0.5]),
         ]
     )
     benchmark = SplitMNIST(
@@ -87,13 +85,16 @@ def main(args):
     )
     # ---------
 
-    # MODEL CREATION
-    model = SimpleMLP(num_classes=benchmark.n_classes)
-    optimizer_classifier = Adam(
-        model.parameters(),
-        lr=args.solver_lr,
-        betas=(0.9, 0.999),
-        # weight_decay=args.solver_weight_decay,
+    run_name = "generative_replay_vae_baseline"
+    run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    if args.debug:
+        project_name = "master-thesis-debug"
+    else:
+        project_name = "master-thesis"
+    wandb_logger = WandBLogger(
+        project_name=project_name, 
+        run_name=run_name, 
+        config=vars(args)
     )
 
     # GENERATOR STRATEGY
@@ -109,8 +110,20 @@ def main(args):
         generator.parameters(),
         lr=args.generator_lr,
         betas=(0.9, 0.999),
-        # weight_decay=args.generator_weight_decay,
     )
+
+    gen_eval_plugin = EvaluationPlugin(
+        ExperienceFIDMetric(),
+        loss_metrics(
+            minibatch=True,
+            epoch=True,
+            epoch_running=True,
+            experience=True,
+            stream=True,
+        ),
+        loggers=[wandb_logger, InteractiveLogger()],
+    )
+
     generator_strategy = VAETraining(
         model=generator,
         optimizer=optimizer_generator,
@@ -119,6 +132,7 @@ def main(args):
         train_epochs=args.epochs_generator,
         eval_mb_size=args.batch_size,
         device=device,
+        evaluator=gen_eval_plugin,
         plugins=[
             UpdatedGenerativeReplayPlugin(
                 replay_size=None,
@@ -127,17 +141,12 @@ def main(args):
         ],
     )
 
-    # choose some metrics and evaluation method
-    run_name = "generative_replay_vae_baseline"
-    run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-    if args.debug:
-        project_name = "master-thesis-debug"
-    else:
-        project_name = "master-thesis"
-    wandb_logger = WandBLogger(
-        project_name=project_name, 
-        run_name=run_name, 
-        config=vars(args)
+    # CLASSIFIER STRATEGY
+    model = SimpleMLP(num_classes=benchmark.n_classes)
+    optimizer_classifier = Adam(
+        model.parameters(),
+        lr=args.solver_lr,
+        betas=(0.9, 0.999),
     )
 
     eval_plugin = EvaluationPlugin(
@@ -185,6 +194,7 @@ def main(args):
         print("Training completed")
 
         cl_strategy.eval(benchmark.test_stream)
+        generator_strategy.eval(benchmark.test_stream)
         
         samples = cl_strategy.generator_strategy.model.generate(20)
         samples = samples.detach().cpu().numpy()

@@ -147,7 +147,7 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
         )
 
 
-class TrainDiffusionGeneratorAfterExpPlugin(SupervisedPlugin):
+class TrainGeneratorAfterExpPlugin(SupervisedPlugin):
     """
     TrainGeneratorAfterExpPlugin makes sure that after each experience of
     training the solver of a scholar model, we also train the generator on the

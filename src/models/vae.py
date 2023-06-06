@@ -217,12 +217,12 @@ def VAE_loss(X, forward_output):
     if batch_size == 0:
         return torch.tensor(0.0)
     
-    reconstruction_loss = MSE_loss(X_hat, X)
+    # reconstruction_loss = MSE_loss(X_hat, X)
     # reconstruction_loss /= X.shape[1] * X.shape[2] * X.shape[3]
-    # reconstruction_loss = F.binary_cross_entropy(input=X_hat.view(batch_size, -1), target=X.view(batch_size, -1),
-    #                                         reduction='none')
-    # reconstruction_loss = torch.mean(reconstruction_loss, dim=1)
-    # reconstruction_loss = torch.mean(reconstruction_loss)
+    reconstruction_loss = F.binary_cross_entropy(input=X_hat.view(batch_size, -1), target=X.view(batch_size, -1),
+                                            reduction='none')
+    reconstruction_loss = torch.mean(reconstruction_loss, dim=1)
+    reconstruction_loss = torch.mean(reconstruction_loss)
     KL_divergence = 0.5 * torch.sum(-1 - logvar + torch.exp(logvar) + mean ** 2, dim=1)
     KL_divergence = torch.mean(KL_divergence)
     KL_divergence /= X.shape[1] * X.shape[2] * X.shape[3]

@@ -21,6 +21,7 @@ from avalanche.training.plugins import EvaluationPlugin
 
 from src.continual_learning.strategies import UpdatedGenerativeReplay, DiffusionTraining
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
+from src.continual_learning.metrics import ExperienceFIDMetric
 
 
 def __parse_args() -> argparse.Namespace:
@@ -113,10 +114,16 @@ def main(args):
         eval_transform=train_transform,
     )
 
-    # --- MODEL CREATION
-    model = SimpleMLP(
-        input_size=args.image_size * args.image_size,
-        num_classes=benchmark.n_classes
+    run_name = "generative_replay_diffusion_baseline"
+    run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    if args.debug:
+        project_name = "master-thesis-debug"
+    else:
+        project_name = "master-thesis"
+    wandb_logger = WandBLogger(
+        project_name=project_name, 
+        run_name=run_name, 
+        config=vars(args)
     )
 
     # --- GENERATOR MODEL CREATION
@@ -130,19 +137,43 @@ def main(args):
         up_block_types=("AttnUpBlock2D", "AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D"),
     )
     noise_scheduler = DDIMScheduler(num_train_timesteps=args.train_timesteps)
-    wrap_in_pipeline(generator_model, noise_scheduler, DDIMPipeline, args.generation_steps)
+    wrap_in_pipeline(generator_model, noise_scheduler, DDIMPipeline, args.generation_steps) 
 
-    # choose some metrics and evaluation method
-    run_name = "generative_replay_diffusion_baseline"
-    run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-    if args.debug:
-        project_name = "master-thesis-debug"
-    else:
-        project_name = "master-thesis"
-    wandb_logger = WandBLogger(
-        project_name=project_name, 
-        run_name=run_name, 
-        config=vars(args)
+    gen_eval_plugin = EvaluationPlugin(
+        ExperienceFIDMetric(),
+        loss_metrics(
+            minibatch=True,
+            epoch=True,
+            epoch_running=True,
+            experience=True,
+            stream=True,
+        ),
+        loggers=[wandb_logger, InteractiveLogger()],
+    )
+
+    # CREATE THE GENERATOR STRATEGY INSTANCE (DiffusionTraining)
+    generator_strategy = DiffusionTraining(
+        generator_model,
+        noise_scheduler,
+        torch.optim.Adam(generator_model.parameters(), lr=args.generator_lr),
+        train_mb_size=args.batch_size,
+        train_epochs=args.epochs_generator,
+        eval_mb_size=args.batch_size,
+        device=device,
+        evaluator=gen_eval_plugin,
+        train_timesteps=args.train_timesteps,
+        plugins=[
+            UpdatedGenerativeReplayPlugin(
+                increasing_replay_size=args.increasing_replay_size,
+                replay_size=args.replay_size,
+            )
+        ],
+    )   
+
+    # --- MODEL CREATION
+    model = SimpleMLP(
+        input_size=args.image_size * args.image_size,
+        num_classes=benchmark.n_classes
     )
 
     eval_plugin = EvaluationPlugin(
@@ -165,25 +196,6 @@ def main(args):
             stream=True, wandb=True, class_names=[str(i) for i in range(10)]
         ),
         loggers=[wandb_logger],
-    )
-
-    # CREATE THE GENERATOR STRATEGY INSTANCE (DiffusionTraining)
-    generator_strategy = DiffusionTraining(
-        generator_model,
-        noise_scheduler,
-        torch.optim.Adam(generator_model.parameters(), lr=args.generator_lr),
-        train_mb_size=args.batch_size,
-        train_epochs=args.epochs_generator,
-        eval_mb_size=args.batch_size,
-        device=device,
-        evaluator=eval_plugin,
-        train_timesteps=args.train_timesteps,
-        plugins=[
-            UpdatedGenerativeReplayPlugin(
-                increasing_replay_size=args.increasing_replay_size,
-                replay_size=args.replay_size,
-            )
-        ],
     )
 
     # CREATE THE STRATEGY INSTANCE (GenerativeReplay)
@@ -216,6 +228,7 @@ def main(args):
 
         print("Computing accuracy on the whole test set")
         results.append(cl_strategy.eval(benchmark.test_stream))
+        generator_strategy.eval(benchmark.test_stream)
         
         print("Computing generated samples and saving them to disk")
         pipeline = DDIMPipeline(unet=generator_model, scheduler=noise_scheduler)

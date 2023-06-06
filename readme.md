@@ -10,6 +10,7 @@
 - PyTorch 2.0.1
 - Diffusers 0.16.1
 - avalanche-lib 0.3.1
+- torch-fidelity 0.3.0
 
 ## Usage
 

@@ -6,7 +6,6 @@ from tqdm import tqdm
 from torch import nn
 from torch.optim import Optimizer
 
-from avalanche.models.pnn import PNN
 from avalanche.models import VAE_loss
 from avalanche.training.plugins.evaluation import default_evaluator
 from avalanche.training.plugins import (
@@ -18,7 +17,8 @@ from avalanche.training.templates import SupervisedTemplate
 from avalanche.logging import InteractiveLogger
 from diffusers import SchedulerMixin
 
-from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin, TrainDiffusionGeneratorAfterExpPlugin
+from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin, TrainGeneratorAfterExpPlugin
+from src.continual_learning.metrics import ExperienceFIDMetric
 
 
 class WeightedSoftGenerativeReplay(SupervisedTemplate):
@@ -102,7 +102,7 @@ class WeightedSoftGenerativeReplay(SupervisedTemplate):
             increasing_replay_size=increasing_replay_size,
         )
 
-        tgp = TrainDiffusionGeneratorAfterExpPlugin()
+        tgp = TrainGeneratorAfterExpPlugin()
 
         if plugins is None:
             plugins = [tgp, rp]
@@ -135,19 +135,31 @@ class WeightedSoftGenerativeReplay(SupervisedTemplate):
         if self.experience.current_experience == 0 or not self.model.training:
             return self._criterion(self.mb_output, self.mb_y)
         
+        real_data_loss = self._criterion(self.mb_output[:self.train_mb_size], self.mb_y[:self.train_mb_size])
+
         mb_y_replay = self.mb_y[self.train_mb_size:]
         # Scale logits by temperature according to M. van de Ven et al. (2020)
         mb_y_replay = mb_y_replay / self.T
-        mb_y_replay = mb_y_replay.softmax(dim=1)
-        real_data_loss = self._criterion(self.mb_output[:self.train_mb_size], self.mb_y[:self.train_mb_size])
-        replay_data_loss = self._criterion(self.mb_output[self.train_mb_size:], mb_y_replay)
+        mb_y_replay = mb_y_replay.log_softmax(dim=1)
+
+        output_replay = self.mb_output[self.train_mb_size:]
+        output_replay = output_replay / self.T
+        output_replay = output_replay.softmax(dim=1)
+        
+        # replay_data_loss = self._criterion(output_replay, mb_y_replay)
+        replay_data_loss = -output_replay * mb_y_replay
+        replay_data_loss = replay_data_loss.sum(dim=1).mean()
         replay_data_loss = replay_data_loss * self.T**2
+
         return ((1/(self.experience.current_experience+1)) * real_data_loss
                 + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss)
 
 
-def get_default_vae_logger():
-    return EvaluationPlugin(loggers=[InteractiveLogger()])
+def get_default_generator_logger():
+    return EvaluationPlugin(
+        [ExperienceFIDMetric()],
+        loggers=[InteractiveLogger()]
+    )
 
 
 class DiffusionTraining(SupervisedTemplate):
@@ -168,7 +180,7 @@ class DiffusionTraining(SupervisedTemplate):
         eval_mb_size: int = None,
         device=None,
         plugins: Optional[List[SupervisedPlugin]] = None,
-        evaluator: EvaluationPlugin = get_default_vae_logger(),
+        evaluator: EvaluationPlugin = get_default_generator_logger(),
         eval_every=-1,
         train_timesteps: int = 1000,
         generation_timesteps: int = 10,
@@ -204,7 +216,7 @@ class DiffusionTraining(SupervisedTemplate):
             eval_mb_size=eval_mb_size,
             device=device,
             plugins=plugins,
-            evaluator=None, # Temporal. TODO: Evaluate difussion model
+            evaluator=evaluator,
             eval_every=eval_every,
             **base_kwargs
         )
@@ -299,7 +311,7 @@ class VAETraining(SupervisedTemplate):
         eval_mb_size: int = None,
         device=None,
         plugins: Optional[List[SupervisedPlugin]] = None,
-        evaluator: EvaluationPlugin = get_default_vae_logger(),
+        evaluator: EvaluationPlugin = get_default_generator_logger(),
         eval_every=-1,
         **base_kwargs
     ):
