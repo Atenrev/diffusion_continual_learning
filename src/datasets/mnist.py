@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 
 def create_dataloader(batch_size: int = 128, transform: transforms.Compose = None, classes: list = None):
     # load dataset from the hub
-    dataset = load_dataset("fashion_mnist")
+    dataset = load_dataset("mnist")
 
     # filter dataset
     if classes is not None:
@@ -13,7 +13,6 @@ def create_dataloader(batch_size: int = 128, transform: transforms.Compose = Non
 
     if transform is None:
         transform = transforms.Compose([
-                transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
         ])
 

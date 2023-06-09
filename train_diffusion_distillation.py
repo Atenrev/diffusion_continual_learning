@@ -24,7 +24,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--timesteps", type=int, default=1000)
     parser.add_argument("--generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
-    parser.add_argument("--num_iterations", type=int, default=2000)
+    parser.add_argument("--num_iterations", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--learning_rate", type=float, default=3e-3)
     parser.add_argument("--eval_batch_size", type=int, default=16)
@@ -92,9 +92,6 @@ def main(args):
             target = teacher(noise, timesteps, return_dict=False)[0]
             student_pred = student(noise, timesteps, return_dict=False)[0]
         elif args.distillation_type == "generation":
-            # Generate images from the teacher model
-            # Then add noise to the generated images
-            # target is the noise predicted by the teacher model
             generated_images = teacher_pipeline(
                 batch_size=args.batch_size,
                 num_inference_steps=args.generation_steps,
