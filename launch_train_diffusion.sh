@@ -1,1 +1,1 @@
-condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python generative_replay_diffusion.py --epochs_generator=16 --epochs_solver=4'
+condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python generative_replay_diffusion.py --epochs_generator=16 --epochs_solver=5 --generation_steps 20'

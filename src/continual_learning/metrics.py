@@ -69,8 +69,8 @@ class ExperienceFIDMetric(PluginMetric[float]):
         """            
         super().after_eval_iteration(strategy)
 
-        if strategy.experience.current_experience > self.train_exp_id:
-            return 
+        # if strategy.experience.current_experience > self.train_exp_id:
+        #     return 
         
         self.fid_metric.update(strategy.mb_output, strategy.mb_x)
 
@@ -79,9 +79,6 @@ class ExperienceFIDMetric(PluginMetric[float]):
 
     def _package_result(self, strategy):
         """Taken from `GenericPluginMetric`, check that class out!"""
-        if strategy.experience.current_experience > self.train_exp_id:
-            return None
-        
         metric_value = self.fid_metric.result()
         add_exp = True
         plot_x_position = strategy.clock.train_iterations

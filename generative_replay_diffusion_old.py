@@ -43,7 +43,7 @@ from avalanche.training.plugins import EvaluationPlugin
 
 from src.continual_learning.strategies import UpdatedGenerativeReplay, DiffusionTraining
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
-from src.models.diffusion import DiffusionModel
+from src.models.diffusion_old import DiffusionModel
 from src.models.unet import Unet
 
 

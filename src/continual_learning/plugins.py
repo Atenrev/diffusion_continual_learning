@@ -110,9 +110,15 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
             else:
                 number_replays_to_generate = len(strategy.mbatch[0])
             
-        replay = self.old_generator.generate(number_replays_to_generate).to(strategy.device)
-        
+        # replay = self.old_generator.generate(number_replays_to_generate).to(strategy.device)
+        replay = torch.randn(strategy.mbatch[0].shape).to(strategy.device)
+        timesteps = torch.randint(
+            0, strategy.scheduler.config.num_train_timesteps, (self.current_batch_size,), device=strategy.device
+        ).long()
+        replay_output = self.old_generator.forward(replay, timesteps, return_dict=False)[0]
         strategy.mbatch[0] = torch.cat([strategy.mbatch[0], replay], dim=0)
+        strategy.noise_x = torch.cat([strategy.noise_x, replay_output], dim=0)
+        strategy.timesteps = torch.cat([strategy.timesteps, timesteps], dim=0)
 
         # extend y with predicted labels (or mock labels if model==generator)
         if not self.model_is_generator:

@@ -54,7 +54,7 @@ class VAEMLPEncoder(nn.Module):
     :param latent_dim: Dimension of last hidden layer
     """
 
-    def __init__(self, shape, units_dim: tuple = (400, 400), latent_dim: int = 100):
+    def __init__(self, shape, units_dim: tuple = (400, 400), latent_dim: int = 100, use_bn: bool = False):
         super(VAEMLPEncoder, self).__init__()
 
         flatten_size = torch.Size(shape).numel()
@@ -63,6 +63,8 @@ class VAEMLPEncoder(nn.Module):
 
         for i in range(len(units_dim)):
             self.encode.append(nn.Linear(prev_size, units_dim[i]))
+            if use_bn:
+                self.encode.append(nn.BatchNorm1d(units_dim[i]))
             self.encode.append(nn.ReLU())
             prev_size = units_dim[i]
 
@@ -87,7 +89,7 @@ class VAEMLPDecoder(nn.Module):
     :param nhid: Dimension of input.
     """
 
-    def __init__(self, shape, units_dim: tuple = (400, 400), latent_dim: int = 100):
+    def __init__(self, shape, units_dim: tuple = (400, 400), latent_dim: int = 100, use_bn: bool = False):
         super(VAEMLPDecoder, self).__init__()
         flattened_size = torch.Size(shape).numel()
         prev_size = latent_dim
@@ -96,6 +98,8 @@ class VAEMLPDecoder(nn.Module):
 
         for i in range(len(units_dim)):
             self.decode.append(nn.Linear(prev_size, units_dim[i]))
+            if use_bn:
+                self.decode.append(nn.BatchNorm1d(units_dim[i]))
             self.decode.append(nn.ReLU())
             prev_size = units_dim[i]
 
@@ -145,7 +149,7 @@ class MlpVAE(Generator, nn.Module):
         self.device = torch.device(device)
         self.encoder = VAEMLPEncoder(shape, encoder_dims, latent_dim)
         self.decoder = VAEMLPDecoder(shape, decoder_dims, latent_dim)
-        self.classification = MLP([encoder_dims[-1], n_classes], last_activation=False)
+        self.classification = nn.Linear(encoder_dims[-1], n_classes)
 
     def get_features(self, x):
         """

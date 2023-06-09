@@ -46,8 +46,8 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--image_size", type=int, default=28)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--channels", type=int, default=1)
-    parser.add_argument("--epochs_generator", type=int, default=1) # 2000*128/12000 = ~21
-    parser.add_argument("--epochs_solver", type=int, default=1) 
+    parser.add_argument("--epochs_generator", type=int, default=21) # 2000*128/12000 = ~21
+    parser.add_argument("--epochs_solver", type=int, default=21) 
     parser.add_argument("--generator_lr", type=float, default=0.001)
     parser.add_argument("--solver_lr", type=float, default=0.001)
     parser.add_argument("--increasing_replay_size", type=bool, default=False)
@@ -59,7 +59,7 @@ def __parse_args() -> argparse.Namespace:
         default=0,
         help="Select zero-indexed cuda device. -1 to use CPU.",
     )
-    parser.add_argument("--debug", action="store_true", default=True)
+    parser.add_argument("--debug", action="store_true", default=False)
     return parser.parse_args()
 
 
@@ -114,14 +114,14 @@ def main(args):
 
     gen_eval_plugin = EvaluationPlugin(
         ExperienceFIDMetric(),
-        loss_metrics(
-            minibatch=True,
-            epoch=True,
-            epoch_running=True,
-            experience=True,
-            stream=True,
-        ),
-        loggers=[wandb_logger, InteractiveLogger()],
+        # loss_metrics(
+        #     minibatch=True,
+        #     epoch=True,
+        #     epoch_running=True,
+        #     experience=True,
+        #     stream=True,
+        # ),
+        loggers=[wandb_logger],
     )
 
     generator_strategy = VAETraining(
@@ -168,7 +168,7 @@ def main(args):
         confusion_matrix_metrics(
             stream=True, wandb=True, class_names=[str(i) for i in range(10)]
         ),
-        loggers=[wandb_logger],
+        loggers=[wandb_logger, ],
     )
 
     # CREATE THE STRATEGY INSTANCE (GenerativeReplay)

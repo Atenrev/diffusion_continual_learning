@@ -5,6 +5,7 @@ from tqdm import tqdm
 
 from torch import nn
 from torch.optim import Optimizer
+from torch.nn import functional as F
 
 from avalanche.models import VAE_loss
 from avalanche.training.plugins.evaluation import default_evaluator
@@ -131,18 +132,27 @@ class WeightedSoftGenerativeReplay(SupervisedTemplate):
     def criterion(self):
         """
         Compute the weighted loss for the current minibatch.
-        """
+        """    
         if self.experience.current_experience == 0 or not self.model.training:
             return self._criterion(self.mb_output, self.mb_y)
         
-        real_data_loss = self._criterion(self.mb_output[:self.train_mb_size], self.mb_y[:self.train_mb_size])
+        row_sums = torch.sum(self.mb_y, dim=1)
+        not_sum_one_mask = (row_sums != 1.0)
+        index = torch.nonzero(not_sum_one_mask, as_tuple=False)
 
-        mb_y_replay = self.mb_y[self.train_mb_size:]
+        if index.numel() > 0:
+            start_of_replay = index[0, 0].item()
+        else:
+            return self._criterion(self.mb_output, self.mb_y)
+        
+        real_data_loss = self._criterion(self.mb_output[:start_of_replay], self.mb_y[:start_of_replay])
+
+        mb_y_replay = self.mb_y[start_of_replay:]
         # Scale logits by temperature according to M. van de Ven et al. (2020)
         mb_y_replay = mb_y_replay / self.T
         mb_y_replay = mb_y_replay.log_softmax(dim=1)
 
-        output_replay = self.mb_output[self.train_mb_size:]
+        output_replay = self.mb_output[start_of_replay:]
         output_replay = output_replay / self.T
         output_replay = output_replay.softmax(dim=1)
         
@@ -150,6 +160,11 @@ class WeightedSoftGenerativeReplay(SupervisedTemplate):
         replay_data_loss = -output_replay * mb_y_replay
         replay_data_loss = replay_data_loss.sum(dim=1).mean()
         replay_data_loss = replay_data_loss * self.T**2
+
+        if ((1/(self.experience.current_experience+1)) * real_data_loss
+                + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss) < 0 or ((1/(self.experience.current_experience+1)) * real_data_loss
+                + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss).isnan().any():
+            print("What the fucking fuck is happening?")
 
         return ((1/(self.experience.current_experience+1)) * real_data_loss
                 + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss)
@@ -174,7 +189,7 @@ class DiffusionTraining(SupervisedTemplate):
         model: nn.Module,
         scheduler: SchedulerMixin,
         optimizer: Optimizer,
-        criterion=nn.SmoothL1Loss(),
+        criterion=nn.MSELoss(),
         train_mb_size: int = 1,
         train_epochs: int = 1,
         eval_mb_size: int = None,
@@ -223,18 +238,55 @@ class DiffusionTraining(SupervisedTemplate):
         self.scheduler = scheduler
         self.train_timesteps = train_timesteps
         self.generation_timesteps = generation_timesteps
+
+    def _extract_into_tensor(self, arr, timesteps, broadcast_shape):
+        """
+        Extract values from a 1-D numpy array for a batch of indices.
+        """
+        res = arr.to(timesteps.device)[timesteps].float()
+        while len(res.shape) < len(broadcast_shape):
+            res = res[..., None]
+        return res.expand(broadcast_shape)
+    
+    def min_snr_weighting(self, noise_pred, noise, timesteps):
+        """
+        Compute the minimum SNR weighting for the current minibatch.
+
+        Ref https://arxiv.org/pdf/2303.09556.pdf
+        """
+        sqrt_alphas_cumprod = (self.scheduler.alphas_cumprod ** 0.5)
+        sqrt_one_minus_alpha_prod = (1 - self.scheduler.alphas_cumprod) ** 0.5
+        alpha = self._extract_into_tensor(sqrt_alphas_cumprod, timesteps, timesteps.shape)
+        sigma = self._extract_into_tensor(sqrt_one_minus_alpha_prod, timesteps, timesteps.shape)
+        snr = (alpha / sigma) ** 2
+        k = 5
+        mse_loss_weight = torch.stack([snr, k * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
+        loss = mse_loss_weight * F.mse_loss(noise_pred, noise)
+        loss = loss.sum()
+        return loss
     
     def criterion(self):
         """
         Compute the loss for the current minibatch.
         """
         if self.experience.current_experience == 0 or not self.model.training:
-            return self._criterion(self.noise_x, self.mb_output)
+            return self.min_snr_weighting(self.noise_x, self.mb_output, self.timesteps)
+
+        # TODO: This only works for replay_size = None...
+        start_of_replay = self.mb_x.shape[0] // 2 
         
-        real_data_loss = self._criterion(self.noise_x[:self.train_mb_size], self.mb_output[:self.train_mb_size])
-        replay_data_loss = self._criterion(self.noise_x[self.train_mb_size:], self.mb_output[self.train_mb_size:])
+        real_data_loss = self.min_snr_weighting(self.noise_x[:start_of_replay], self.mb_output[:start_of_replay], self.timesteps[:start_of_replay])
+        # replay_data_loss = self.min_snr_weighting(self.noise_x[start_of_replay:], self.mb_output[start_of_replay:])
+        output = self.model(self.mb_x[start_of_replay:], self.timesteps[start_of_replay:], return_dict=False)[0]
+        replay_data_loss = self.min_snr_weighting(self.noise_x[start_of_replay:], output, self.timesteps[start_of_replay:]) * 5
+        # Clip the replay loss to avoid exploding gradients
+        # replay_data_loss = torch.clamp(replay_data_loss, 0, real_data_loss.item())
         return ((1/(self.experience.current_experience+1)) * real_data_loss
                 + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss)
+    
+    def forward(self):
+        noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, self.timesteps)
+        return self.model(noisy_images, self.timesteps, return_dict=False)[0]
     
     def training_epoch(self, **kwargs):
         """
@@ -243,11 +295,17 @@ class DiffusionTraining(SupervisedTemplate):
         :param kwargs:
         :return:
         """           
-        for self.mbatch in tqdm(self.dataloader):
-            batch_size = self.mbatch[0].shape[0]
-
+        for self.mbatch in self.dataloader:
             if self._stop_training:
                 break
+            
+            batch_size = self.mbatch[0].shape[0]
+
+            # Sample noise
+            self.noise_x = torch.randn(self.mbatch[0].shape).to(self.device)
+            self.timesteps = torch.randint(
+                0, self.scheduler.config.num_train_timesteps, (batch_size,), device=self.device
+            ).long()
 
             self._unpack_minibatch()
             self._before_training_iteration(**kwargs)
@@ -256,17 +314,8 @@ class DiffusionTraining(SupervisedTemplate):
             self.loss = 0
 
             # Forward
-            self._before_forward(**kwargs)
-
-            # Sample noise
-            self.noise_x = torch.randn(self.mbatch[0].shape).to(self.device)
-            timesteps = torch.randint(
-                0, self.scheduler.config.num_train_timesteps, (batch_size,), device=self.device
-            ).long()
-            noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, timesteps)
-
-            self.mb_output = self.model(noisy_images, timesteps, return_dict=False)[0]
-
+            self._before_forward(**kwargs)          
+            self.mb_output = self.forward()
             self._after_forward(**kwargs)
 
             # Loss & Backward
@@ -278,6 +327,7 @@ class DiffusionTraining(SupervisedTemplate):
 
             # Optimization step
             self._before_update(**kwargs)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             self.optimizer_step()
             self._after_update(**kwargs)
 
@@ -286,6 +336,19 @@ class DiffusionTraining(SupervisedTemplate):
     def _after_training_exp(self, **kwargs):
         self.untrained_solver = False
         return super()._after_training_exp(**kwargs)
+    
+    def eval_epoch(self, **kwargs):
+        """Evaluation loop over the current `self.dataloader`."""
+        for self.mbatch in self.dataloader:
+            self._unpack_minibatch()
+            self._before_eval_iteration(**kwargs)
+
+            self._before_eval_forward(**kwargs)
+            self.mb_output = self.model.generate(self.mbatch[0].shape[0])
+            self._after_eval_forward(**kwargs)
+            # self.loss = self.criterion()
+
+            self._after_eval_iteration(**kwargs)
         
 
 class VAETraining(SupervisedTemplate):
@@ -359,17 +422,20 @@ class VAETraining(SupervisedTemplate):
         if self.experience.current_experience == 0 or not self.model.training:
             return self._criterion(self.mb_x, self.mb_output)
         
+        # TODO: This only works for replay_size = None...
+        start_of_replay = self.mb_x.shape[0] // 2 
+        
         mb_output_real = (
-            self.mb_output[0][:self.train_mb_size],
-            self.mb_output[1][:self.train_mb_size],
-            self.mb_output[2][:self.train_mb_size],
+            self.mb_output[0][:start_of_replay],
+            self.mb_output[1][:start_of_replay],
+            self.mb_output[2][:start_of_replay],
         )
         mb_output_replay = (
-            self.mb_output[0][self.train_mb_size:],
-            self.mb_output[1][self.train_mb_size:],
-            self.mb_output[2][self.train_mb_size:],
+            self.mb_output[0][start_of_replay:],
+            self.mb_output[1][start_of_replay:],
+            self.mb_output[2][start_of_replay:],
         )
-        real_data_loss = self._criterion(self.mb_x[:self.train_mb_size], mb_output_real)
-        replay_data_loss = self._criterion(self.mb_x[self.train_mb_size:], mb_output_replay)
+        real_data_loss = self._criterion(self.mb_x[:start_of_replay], mb_output_real)
+        replay_data_loss = self._criterion(self.mb_x[start_of_replay:], mb_output_replay)
         return ((1/(self.experience.current_experience+1)) * real_data_loss
                 + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss)

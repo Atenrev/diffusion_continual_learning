@@ -16,7 +16,7 @@ from src.models.vae import MlpVAE, VAE_loss
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image_size", type=int, default=28)
-    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--channels", type=int, default=1)
     parser.add_argument("--num_epochs", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
@@ -43,6 +43,7 @@ def main(args):
         device=device
     )
     model = model.to(device)
+    print(model)
 
     optimizer = Adam(
         model.parameters(),
@@ -52,7 +53,7 @@ def main(args):
 
     preprocess = transforms.Compose(
         [
-            transforms.Resize((args.image_size, args.image_size)),
+            # transforms.Resize((args.image_size, args.image_size)),
             transforms.ToTensor(),
             # transforms.Normalize([0.5], [0.5]),
         ]
@@ -64,6 +65,7 @@ def main(args):
         print(f"Epoch {epoch}")
 
         bar = tqdm(enumerate(dataloader), desc="Training loop", total=len(dataloader))
+        avg_loss = 0.0
         
         for step, clean_images in bar:
             images = clean_images["pixel_values"].to(device)
@@ -78,6 +80,9 @@ def main(args):
             optimizer.step()
 
             bar.set_postfix(loss=loss.item())
+            avg_loss += loss.item()
+
+        print(f"Epoch completed. Average loss: {avg_loss/len(dataloader)}")
 
         # Save the images in the grid
         samples = model.generate(20)
