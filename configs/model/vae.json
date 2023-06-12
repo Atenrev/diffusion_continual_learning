@@ -1,0 +1,15 @@
+{
+    "model": {
+        "name": "mlpvae",
+        "channels": 1,
+        "input_size": 28,
+        "encoder_dims": [400, 400],
+        "decoder_dims": [400, 400],
+        "latent_dim": 100,
+        "n_classes": 10
+    },
+    "optimizer": {
+        "name": "adam",
+        "lr": 0.001
+    }
+}

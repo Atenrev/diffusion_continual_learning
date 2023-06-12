@@ -6,7 +6,7 @@ from PIL import Image
 
 
 def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int, eta: float = 1.0):
-    def generate(batch_size):
+    def generate(batch_size: int) -> torch.Tensor:
         device = next(model.parameters()).device
         pipeline = pipeline_class(unet=model, scheduler=scheduler)
         pipeline.set_progress_bar_config(disable=True)

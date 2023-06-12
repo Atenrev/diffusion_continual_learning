@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from src.datasets.fashion_mnist import create_dataloader
 from src.pipelines.pipeline_ddim import DDIMPipeline
-from src.diffusion_utils import evaluate_diffusion
+from src.common.diffusion_utils import evaluate_diffusion
 
 
 def __parse_args() -> argparse.Namespace:

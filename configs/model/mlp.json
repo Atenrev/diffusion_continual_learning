@@ -1,0 +1,12 @@
+{
+    "model": {
+        "name": "mlp",
+        "input_size": 28,
+        "channels": 1,
+        "n_classes": 10
+    },
+    "optimizer": {
+        "name": "adam",
+        "lr": 0.001
+    }
+}

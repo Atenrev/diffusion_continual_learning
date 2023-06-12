@@ -12,7 +12,7 @@ from diffusers import UNet2DModel, DDIMScheduler
 from tqdm import tqdm
 
 from src.pipelines.pipeline_ddim import DDIMPipeline
-from src.diffusion_utils import evaluate_diffusion
+from src.common.diffusion_utils import evaluate_diffusion
 
 
 def __parse_args() -> argparse.Namespace:
