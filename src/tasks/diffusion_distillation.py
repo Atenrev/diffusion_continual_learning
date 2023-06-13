@@ -51,6 +51,7 @@ class DiffusionDistillation(ABC):
             assert eval_loader is not None
 
         bar = tqdm(range(self.train_iterations), desc="Training loop", total=self.train_iterations)
+        best_fid = torch.inf
 
         for iteration in bar:
             self.optimizer.zero_grad()
@@ -70,10 +71,14 @@ class DiffusionDistillation(ABC):
             self.optimizer.step()
 
             if (iteration + 1) % save_every == 0 or iteration == self.train_iterations - 1:
-                self.save(save_path)
+                fid = torch.inf
 
                 if self.evaluator is not None:
-                    self.evaluator.on_epoch_end(self.student, eval_loader, iteration, save_path=save_path)
+                    fid = self.evaluator.evaluate(self.student, eval_loader, iteration, save_path=save_path)
+
+                if fid <= best_fid:
+                    best_fid = fid 
+                    self.save(save_path)
 
             bar.set_postfix(loss=loss.item())
 

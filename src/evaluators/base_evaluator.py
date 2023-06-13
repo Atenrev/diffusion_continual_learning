@@ -6,5 +6,5 @@ class BaseEvaluator(ABC):
     def __init__(self):
         pass
 
-    def on_epoch_end(self, *args, **kwargs):
+    def evaluate(self, *args, **kwargs):
         raise NotImplementedError 

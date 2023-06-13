@@ -46,6 +46,8 @@ class GenerativeTraining:
         if self.evaluator is not None:
             assert eval_loader is not None
 
+        best_fid = torch.inf
+
         for epoch in range(self.train_epochs):
             bar = tqdm(train_loader, desc=f"Training epoch {epoch}", total=len(train_loader))
 
@@ -61,8 +63,12 @@ class GenerativeTraining:
 
                 bar.set_postfix(loss=loss.item())
 
-            if self.evaluator is not None:
-                self.evaluator.on_epoch_end(self.model, eval_loader, epoch, save_path=save_path)
+            fid = torch.inf
 
-            self.save(save_path, epoch)
+            if self.evaluator is not None:
+                fid = self.evaluator.evaluate(self.model, eval_loader, epoch, save_path=save_path)
+
+            if fid <= best_fid:
+                best_fid = fid 
+                self.save(save_path, epoch)
                 

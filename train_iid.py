@@ -27,15 +27,16 @@ from src.evaluators.generative_evaluator import GenerativeModelEvaluator
 
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image_size", type=int, default=28)
+    parser.add_argument("--image_size", type=int, default=28) # 28 for vae, 32 for unet
     parser.add_argument("--channels", type=int, default=1)
 
-    parser.add_argument("--model_config_path", type=str,
-                        default="configs/model/vae.json")
+    parser.add_argument("--model_config_path", type=str, default="configs/model/vae.json")
     parser.add_argument("--training_type", type=str, default="generative",
                         help="Type of training to use (diffusion, generative)")
     parser.add_argument("--distillation_type", type=str, default=None,
                         help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
+    parser.add_argument("--teacher_path", type=str, default=None,
+                        help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (mse, min_snr)")
     
@@ -121,6 +122,7 @@ def main(args):
                           save_path=results_folder)
 
         else:
+            assert args.teacher_path is not None
             teacher = None  # TODO: load teacher
 
             if args.distillation_type == "gaussian":

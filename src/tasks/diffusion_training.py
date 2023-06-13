@@ -44,6 +44,7 @@ class DiffusionTraining:
 
             bar = tqdm(enumerate(train_loader),
                        desc="Training loop", total=len(train_loader))
+            best_fid = torch.inf
 
             for step, clean_images in bar:
                 self.optimizer.zero_grad()
@@ -71,8 +72,14 @@ class DiffusionTraining:
 
                 bar.set_postfix(loss=loss.item())
 
+            fid = torch.inf
+
             if self.evaluator is not None:
-                self.evaluator.on_epoch_end(self.model, eval_loader, epoch, save_path=save_path)
+                fid = self.evaluator.evaluate(self.model, eval_loader, epoch, save_path=save_path)
+
+            if fid <= best_fid:
+                best_fid = fid 
+                self.save(save_path)
                 
             self.save(save_path)
                 

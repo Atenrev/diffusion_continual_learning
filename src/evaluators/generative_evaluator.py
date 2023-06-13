@@ -14,7 +14,7 @@ class GenerativeModelEvaluator(BaseEvaluator):
         self.device = device
         self.reset_fid()
 
-    def on_epoch_end(self, model, dataloader, epoch: int = 0, save_images=20, save_path="results"):
+    def evaluate(self, model, dataloader, epoch: int = 0, save_images=20, save_path="results"):
         print("Evaluating FID...")
         self.fid.reset()
 
@@ -42,6 +42,8 @@ class GenerativeModelEvaluator(BaseEvaluator):
             ncols = save_images // nrows + save_images % nrows
             generated_images = make_grid(generated_images, rows=nrows, cols=ncols)
             generated_images.save(os.path.join(save_path, f"generated_images_{epoch}.png"))
+
+        return fid
 
     def reset_fid(self):
         self.fid = FrechetInceptionDistance(normalize=True, feature=64)
