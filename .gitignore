@@ -354,5 +354,6 @@ sweep/
 
 # Custom
 /results
+/results_old
 /condor*
 /wandb

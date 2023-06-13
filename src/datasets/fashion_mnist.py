@@ -25,6 +25,7 @@ def create_dataloader(batch_size: int = 128, transform: transforms.Compose = Non
     transformed_dataset = dataset.with_transform(apply_transforms).remove_columns("label")
 
     # create dataloader
-    dataloader = DataLoader(transformed_dataset["train"], batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(transformed_dataset["train"], batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(transformed_dataset["test"], batch_size=batch_size, shuffle=False)
     
-    return dataloader
+    return train_dataloader, test_dataloader
