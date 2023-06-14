@@ -15,14 +15,14 @@ from src.common.diffusion_utils import wrap_in_pipeline
 from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.models.vae import MlpVAE, VAE_loss
 from src.losses.diffusion_losses import MSELoss, MinSNRLoss
-from src.tasks.diffusion_training import DiffusionTraining
-from src.tasks.diffusion_distillation import (
+from src.trainers.diffusion_training import DiffusionTraining
+from src.trainers.diffusion_distillation import (
     GaussianDistillation,
     PartialGenerationDistillation,
     GenerationDistillation,
     NoDistillation
 )
-from src.tasks.generative_training import GenerativeTraining
+from src.trainers.generative_training import GenerativeTraining
 from src.evaluators.generative_evaluator import GenerativeModelEvaluator
 
 
@@ -46,6 +46,7 @@ def __parse_args() -> argparse.Namespace:
                         help="Criterion to use for training (mse, min_snr)")
 
     parser.add_argument("--generation_steps", type=int, default=20)
+    parser.add_argument("--teacher_generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
 
     parser.add_argument("--num_epochs", type=int, default=10)
@@ -138,8 +139,8 @@ def main(args):
             teacher_pipeline = DDIMPipeline.from_pretrained(args.teacher_path)
             teacher_pipeline.set_progress_bar_config(disable=True)
             teacher = teacher_pipeline.unet.to(device)
-            wrap_in_pipeline(teacher, noise_scheduler,
-                             args.generation_steps, args.eta)
+            wrap_in_pipeline(teacher, noise_scheduler, DDIMPipeline,
+                             args.teacher_generation_steps, args.eta)
 
             if args.distillation_type == "gaussian":
                 trainer_class = GaussianDistillation

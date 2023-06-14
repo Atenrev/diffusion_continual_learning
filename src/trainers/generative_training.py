@@ -5,7 +5,7 @@ from tqdm import tqdm
 from typing import Optional, Any
 
 from src.evaluators.base_evaluator import BaseEvaluator
-from src.tasks.base_trainer import BaseTrainer
+from src.trainers.base_trainer import BaseTrainer
 
 
 class GenerativeTraining(BaseTrainer):
@@ -49,7 +49,7 @@ class GenerativeTraining(BaseTrainer):
             fid = torch.inf
 
             if self.evaluator is not None:
-                fid = self.evaluator.evaluate(self.model, eval_loader, epoch)
+                fid = self.evaluator.evaluate(self.model, eval_loader, epoch)["fid"]
 
             if fid <= best_fid:
                 best_fid = fid 

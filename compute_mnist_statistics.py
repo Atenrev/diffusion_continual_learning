@@ -2,24 +2,27 @@ import os
 import torch
 import argparse
 import numpy as np
-import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from typing import Any, Optional
+from typing import Any
 from avalanche.models import SimpleMLP
 from torchvision import transforms
 
 from src.common.utils import get_configuration
 from src.datasets.mnist import create_dataloader
 from src.pipelines.pipeline_ddim import DDIMPipeline
+from src.common.visual import plot_bar
 
 
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--model_config_path", type=str, default="configs/model/mlp.json")
-    parser.add_argument("--weights_path", type=str, default="results/mlp_mnist/")
-    parser.add_argument("--generator_path", type=str, default="results/diffusion_None_mse_42/")
+    parser.add_argument("--model_config_path", type=str,
+                        default="configs/model/mlp.json")
+    parser.add_argument("--weights_path", type=str,
+                        default="results/mlp_mnist/")
+    parser.add_argument("--generator_path", type=str,
+                        default="results/diffusion_None_mse_42/")
 
     parser.add_argument("--classifier_batch_size", type=int, default=256)
     parser.add_argument("--generator_batch_size", type=int, default=256)
@@ -41,7 +44,8 @@ def load_or_train_mnist_classifier(model_config: Any, device: str, weights_path:
 
     if os.path.exists(os.path.join(weights_path, "model.pt")):
         print("Loading model from disk")
-        model.load_state_dict(torch.load(os.path.join(weights_path, "model.pt")))
+        model.load_state_dict(torch.load(
+            os.path.join(weights_path, "model.pt")))
         model.to(device)
         return model
 
@@ -89,29 +93,30 @@ def load_or_train_mnist_classifier(model_config: Any, device: str, weights_path:
                 accuracy = (pred.argmax(dim=1) == batch_labels).float().mean()
                 accuracy_list.append(accuracy.item())
 
-        print(f"Epoch {epoch} finished. Accuracy: {sum(accuracy_list) / len(accuracy_list)}")
+        print(
+            f"Epoch {epoch} finished. Accuracy: {sum(accuracy_list) / len(accuracy_list)}")
 
-    
     torch.save(model.state_dict(), os.path.join(weights_path, "model.pt"))
     return model
 
 
 def main(args):
     model_config = get_configuration(args.model_config_path)
-    classifier = load_or_train_mnist_classifier(model_config, args.device, args.weights_path, args.classifier_batch_size)
+    classifier = load_or_train_mnist_classifier(
+        model_config, args.device, args.weights_path, args.classifier_batch_size)
     generator_pipeline = DDIMPipeline.from_pretrained(args.generator_path)
     generator_pipeline.set_progress_bar_config(disable=True)
     generator_pipeline = generator_pipeline.to(args.device)
-    
+
     # initializes dict with the 10 classes to 0
     samples_per_class = {i: 0 for i in range(10)}
     n_iterations = args.n_samples // args.generator_batch_size
     for _ in tqdm(range(n_iterations)):
         generated_samples = generator_pipeline(
-            args.generator_batch_size, 
+            args.generator_batch_size,
             num_inference_steps=args.n_steps,
             eta=args.eta,
-            output_type="torch", 
+            output_type="torch",
         )
 
         # Resize to 28x28
@@ -130,31 +135,16 @@ def main(args):
     class_names = list(samples_per_class.keys())
     sample_counts = list(samples_per_class.values())
 
-    # Set up the figure and axis
-    fig, ax = plt.subplots()
-
-    # Plotting the bar graph
-    ax.bar(class_names, sample_counts, color='skyblue')
-
-    # Adding labels and title
-    ax.set_xlabel('Classes')
-    ax.set_ylabel('Number of Samples')
-    ax.set_title('Number of Samples for Each Class')
-
-    # Adjusting the appearance
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-
-    # Rotating the x-axis labels if necessary
-    plt.xticks(rotation=45)
-
-    # Setting the x-axis tick positions and labels
-    ax.set_xticks(np.arange(0, len(class_names)))
-    ax.set_xticklabels(class_names)
-
-    # Save the graph to disk
-    plt.tight_layout()
-    plt.savefig('mnist_statistics.png')
+    # Plot bar chart
+    save_path = os.path.join(args.generator_path, "mnist_samples_per_class.png")
+    plot_bar(
+        class_names,
+        sample_counts,
+        x_label="Classes",
+        y_label="Number of samples",
+        title="Number of Samples for Each Class",
+        save_path=save_path
+    )
 
 
 if __name__ == "__main__":

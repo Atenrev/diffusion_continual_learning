@@ -80,7 +80,7 @@ class DiffusionTraining:
             fid = torch.inf
 
             if self.evaluator is not None:
-                fid = self.evaluator.evaluate(self.model, eval_loader, epoch)
+                fid = self.evaluator.evaluate(self.model, eval_loader, epoch)["fid"]
 
             if fid <= best_fid:
                 best_fid = fid 

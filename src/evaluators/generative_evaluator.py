@@ -45,7 +45,7 @@ class GenerativeModelEvaluator(BaseEvaluator):
             generated_images = make_grid(generated_images, rows=nrows, cols=ncols)
             generated_images.save(os.path.join(self.save_path, f"generated_images_epoch_{epoch}_fid_{fid:.4f}.png"))
 
-        return fid
+        return {"fid": fid}
 
     def reset_fid(self):
         self.fid = FrechetInceptionDistance(normalize=True, feature=64)

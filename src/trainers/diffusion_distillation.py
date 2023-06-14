@@ -9,7 +9,7 @@ from src.losses.diffusion_losses import DiffusionLoss
 from diffusers import SchedulerMixin
 
 from src.evaluators.base_evaluator import BaseEvaluator
-from src.tasks.base_trainer import BaseTrainer
+from src.trainers.base_trainer import BaseTrainer
 
 
 class DiffusionDistillation(BaseTrainer):
@@ -27,7 +27,6 @@ class DiffusionDistillation(BaseTrainer):
                  evaluator: Optional[BaseEvaluator] = None,
                  ):
         self.model = model
-        self.teacher = teacher
         self.scheduler = scheduler
         self.optimizer = optimizer
         self.criterion = criterion
@@ -75,7 +74,7 @@ class DiffusionDistillation(BaseTrainer):
                 fid = torch.inf
 
                 if self.evaluator is not None:
-                    fid = self.evaluator.evaluate(self.model, eval_loader, iteration)
+                    fid = self.evaluator.evaluate(self.model, eval_loader, iteration)["fid"]
 
                 if fid <= best_fid:
                     best_fid = fid 
@@ -131,16 +130,11 @@ class GenerationDistillation(DiffusionDistillation):
         self.eta = eta
 
     def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        noise = torch.randn((self.train_mb_size, 3, 256, 256)).to(self.device)
+        channels = self.model.config.in_channels
+        sample_size = self.model.config.sample_size
+        noise = torch.randn((self.train_mb_size, channels, sample_size, sample_size)).to(self.device)
 
-        generated_images = self.teacher(
-            batch_size=self.train_mb_size,
-            num_inference_steps=self.generation_steps,
-            eta=self.eta,
-            output_type="np.array", 
-        ).images
-        generated_images = torch.from_numpy(generated_images).to(self.device)
-        generated_images = generated_images.permute(0, 3, 1, 2)
+        generated_images = self.teacher.generate(self.train_mb_size)
         noisy_images = self.scheduler.add_noise(generated_images, noise, timesteps)
         target = self.teacher(noisy_images, timesteps, return_dict=False)[0]
         student_pred = self.model(noisy_images, timesteps, return_dict=False)[0]
@@ -193,17 +187,12 @@ class NoDistillation(DiffusionDistillation):
             self.eta = eta
     
         def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-            noise = torch.randn((self.train_mb_size, 3, 256, 256)).to(self.device)
+            channels = self.model.config.in_channels
+            sample_size = self.model.config.sample_size
+            noise = torch.randn((self.train_mb_size, channels, sample_size, sample_size)).to(self.device)
             target = noise
 
-            generated_images = self.teacher(
-                batch_size=self.train_mb_size,
-                num_inference_steps=self.generation_steps,
-                eta=self.eta,
-            output_type="np.array", 
-            ).images
-            generated_images = torch.from_numpy(generated_images).to(self.device)
-            generated_images = generated_images.permute(0, 3, 1, 2)
+            generated_images = self.teacher.generate(self.train_mb_size)
             noisy_images = self.scheduler.add_noise(generated_images, noise, timesteps)
             student_pred = self.model(noisy_images, timesteps, return_dict=False)[0]
     

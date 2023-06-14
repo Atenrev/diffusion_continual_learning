@@ -5,7 +5,7 @@ import torch.optim.lr_scheduler
 from PIL import Image
 
 
-def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int, eta: float = 1.0):
+def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int, eta: float = 1.0, output_type: str = "torch"):
     def generate(batch_size: int) -> torch.Tensor:
         device = next(model.parameters()).device
         pipeline = pipeline_class(unet=model, scheduler=scheduler)
@@ -14,12 +14,8 @@ def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int,
             batch_size, 
             num_inference_steps=num_inference_steps,
             eta=eta,
-            output_type="torch", 
+            output_type=output_type, 
         )
-        # samples = torch.from_numpy(samples)
-        # # From (B, H, W, C) to (B, C, H, W)
-        # samples = samples.permute(0, 3, 1, 2)
-        # samples = samples.to(device)
         return samples
     
     model.generate = generate

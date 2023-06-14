@@ -16,9 +16,10 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 
-from diffusers.schedulers import DDIMScheduler
 from diffusers.utils import randn_tensor
 from diffusers.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
+
+from src.schedulers.scheduler_ddim import DDIMScheduler
 
 
 class DDIMPipeline(DiffusionPipeline):
@@ -48,6 +49,7 @@ class DDIMPipeline(DiffusionPipeline):
         generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
         eta: float = 0.0,
         num_inference_steps: int = 50,
+        target_steps: Union[List[int], int] = 0,
         use_clipped_model_output: Optional[bool] = None,
         output_type: Optional[str] = "torch",
         return_dict: bool = True,
@@ -64,6 +66,10 @@ class DDIMPipeline(DiffusionPipeline):
             num_inference_steps (`int`, *optional*, defaults to 50):
                 The number of denoising steps. More denoising steps usually lead to a higher quality image at the
                 expense of slower inference.
+            target_step (`int`, *optional*, defaults to 0):
+                The step at which to stop the denoising process. If `target_step` is 0, the denoising process will
+                continue until the last step. If `target_step` is greater than 0, the denoising process will stop at
+                `target_step` and the image will be denoised to the corresponding noise level.
             use_clipped_model_output (`bool`, *optional*, defaults to `None`):
                 if `True` or `False`, see documentation for `DDIMScheduler.step`. If `None`, nothing is passed
                 downstream to the scheduler. So use `None` for schedulers which don't support this argument.
@@ -98,7 +104,7 @@ class DDIMPipeline(DiffusionPipeline):
         image = randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
 
         # set step values
-        self.scheduler.set_timesteps(num_inference_steps)
+        self.scheduler.set_timesteps(num_inference_steps, target_steps=target_steps)
 
         for t in self.progress_bar(self.scheduler.timesteps):
             # 1. predict noise model_output
@@ -114,7 +120,9 @@ class DDIMPipeline(DiffusionPipeline):
             if torch.isnan(model_output).any() or torch.isnan(image).any():
                 raise RuntimeError("NaNs encountered. Try reducing batch size or eta.")
 
-        # MODIFIED
+        if output_type == "torch_raw":
+            return image
+
         image = (image / 2 + 0.5).clamp(0, 1)
 
         if output_type == "torch":

@@ -49,5 +49,5 @@ class BaseTrainer(ABC):
     def evaluate(self, eval_loader, save_path: str = "./results/generative"):
         assert self.evaluator is not None
         assert self.best_model is not None
-        fid = self.evaluator.evaluate(self.best_model, eval_loader, 0, save_path=save_path)
-        return fid
+        metrics = self.evaluator.evaluate(self.best_model, eval_loader, 0, save_path=save_path)
+        return metrics
