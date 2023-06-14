@@ -5,9 +5,10 @@ from tqdm import tqdm
 from typing import Optional, Any
 
 from src.evaluators.base_evaluator import BaseEvaluator
+from src.tasks.base_trainer import BaseTrainer
 
 
-class GenerativeTraining:
+class GenerativeTraining(BaseTrainer):
 
     def __init__(self,
                  model: torch.nn.Module,
@@ -22,25 +23,7 @@ class GenerativeTraining:
         """
         Class for training generative models in a traditional way.
         """
-        self.model = model
-        self.optimizer = optimizer
-        self.criterion = criterion
-        self.train_mb_size = train_mb_size
-        self.train_epochs = train_epochs
-        self.eval_mb_size = eval_mb_size
-        self.device = device
-        self.evaluator = evaluator        
-
-    def save(self, path: str, epoch: int):
-        model_path = os.path.join(path, "model")
-        os.makedirs(model_path, exist_ok=True)
-
-        # Save model and scheduler
-        torch.save({
-            "epoch": epoch,
-            "model_state_dict": self.model.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-        }, os.path.join(model_path, f"model_{epoch}.pt"))
+        super().__init__(model, optimizer, criterion, train_mb_size, train_epochs, eval_mb_size, device, evaluator)
 
     def train(self, train_loader, eval_loader, save_path: str = "./results/generative"):
         if self.evaluator is not None:
@@ -66,9 +49,10 @@ class GenerativeTraining:
             fid = torch.inf
 
             if self.evaluator is not None:
-                fid = self.evaluator.evaluate(self.model, eval_loader, epoch, save_path=save_path)
+                fid = self.evaluator.evaluate(self.model, eval_loader, epoch)
 
             if fid <= best_fid:
                 best_fid = fid 
+                self.best_model = self.model
                 self.save(save_path, epoch)
                 

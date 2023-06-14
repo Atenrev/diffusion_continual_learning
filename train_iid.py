@@ -8,10 +8,11 @@ from torch.optim import Adam
 from torchvision import transforms
 from diffusers import UNet2DModel, DDIMScheduler
 
-from src.datasets.fashion_mnist import create_dataloader
+from src.datasets.fashion_mnist import create_dataloader as create_fashion_mnist_dataloader
+from src.datasets.mnist import create_dataloader as create_mnist_dataloader
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline
-from src.pipelines.ddim_pipeline import DDIMPipeline
+from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.models.vae import MlpVAE, VAE_loss
 from src.losses.diffusion_losses import MSELoss, MinSNRLoss
 from src.tasks.diffusion_training import DiffusionTraining
@@ -27,11 +28,15 @@ from src.evaluators.generative_evaluator import GenerativeModelEvaluator
 
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image_size", type=int, default=28) # 28 for vae, 32 for unet
+    # 28 for vae, 32 for unet
+    parser.add_argument("--image_size", type=int, default=32)
     parser.add_argument("--channels", type=int, default=1)
 
-    parser.add_argument("--model_config_path", type=str, default="configs/model/vae.json")
-    parser.add_argument("--training_type", type=str, default="generative",
+    parser.add_argument("--dataset", type=str, default="mnist")
+
+    parser.add_argument("--model_config_path", type=str,
+                        default="configs/model/diffusion.json")
+    parser.add_argument("--training_type", type=str, default="diffusion",
                         help="Type of training to use (diffusion, generative)")
     parser.add_argument("--distillation_type", type=str, default=None,
                         help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
@@ -39,7 +44,7 @@ def __parse_args() -> argparse.Namespace:
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (mse, min_snr)")
-    
+
     parser.add_argument("--generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
 
@@ -58,7 +63,7 @@ def main(args):
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    run_name = f"{args.training_type}_{args.distillation_type}_{args.seed}"
+    run_name = f"{args.training_type}_{args.distillation_type}_{args.criterion}_{args.seed}"
     results_folder = os.path.join("results", run_name)
     os.makedirs(results_folder, exist_ok=True)
 
@@ -68,16 +73,23 @@ def main(args):
         [
             transforms.Resize((args.image_size, args.image_size)),
             transforms.ToTensor(),
-            # transforms.Normalize([0.5], [0.5]),
+            transforms.Normalize([0.5], [0.5]),
         ]
     )
 
-    train_dataloader, test_dataloader = create_dataloader(
-        args.batch_size, preprocess)
+    if args.dataset == "mnist":
+        train_dataloader, test_dataloader = create_mnist_dataloader(
+            args.batch_size, preprocess)
+    elif args.dataset == "fashion_mnist":
+        train_dataloader, test_dataloader = create_fashion_mnist_dataloader(
+            args.batch_size, preprocess)
+    else:
+        raise NotImplementedError
 
     model_config = get_configuration(args.model_config_path)
 
-    evaluator = GenerativeModelEvaluator(device=device)
+    evaluator = GenerativeModelEvaluator(
+        device=device, save_images=20, save_path=results_folder)
 
     if args.training_type == "diffusion":
         model = UNet2DModel(
@@ -123,7 +135,11 @@ def main(args):
 
         else:
             assert args.teacher_path is not None
-            teacher = None  # TODO: load teacher
+            teacher_pipeline = DDIMPipeline.from_pretrained(args.teacher_path)
+            teacher_pipeline.set_progress_bar_config(disable=True)
+            teacher = teacher_pipeline.unet.to(device)
+            wrap_in_pipeline(teacher, noise_scheduler,
+                             args.generation_steps, args.eta)
 
             if args.distillation_type == "gaussian":
                 trainer_class = GaussianDistillation
@@ -138,7 +154,6 @@ def main(args):
 
             trainer = trainer_class(
                 student=model,
-                teacher=teacher,
                 scheduler=noise_scheduler,
                 optimizer=optimizer,
                 criterion=criterion,
@@ -150,7 +165,7 @@ def main(args):
                 evaluator=evaluator
             )
 
-            trainer.train(train_dataloader,
+            trainer.train(teacher, eval_loader=test_dataloader,
                           save_every=args.save_every, save_path=results_folder)
 
     elif args.training_type == "generative":
@@ -181,7 +196,7 @@ def main(args):
         )
         trainer.train(train_dataloader, test_dataloader,
                       save_path=results_folder)
-        
+
     else:
         raise NotImplementedError
 

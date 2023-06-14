@@ -353,6 +353,7 @@ venv/
 sweep/
 
 # Custom
+/*.png
 /results
 /results_old
 /condor*

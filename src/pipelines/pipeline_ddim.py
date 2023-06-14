@@ -49,9 +49,9 @@ class DDIMPipeline(DiffusionPipeline):
         eta: float = 0.0,
         num_inference_steps: int = 50,
         use_clipped_model_output: Optional[bool] = None,
-        output_type: Optional[str] = "pil",
+        output_type: Optional[str] = "torch",
         return_dict: bool = True,
-    ) -> Union[ImagePipelineOutput, Tuple]:
+    ) -> Union[ImagePipelineOutput, Tuple, torch.Tensor]:
         r"""
         Args:
             batch_size (`int`, *optional*, defaults to 1):
@@ -111,8 +111,16 @@ class DDIMPipeline(DiffusionPipeline):
                 model_output, t, image, eta=eta, use_clipped_model_output=use_clipped_model_output, generator=generator
             ).prev_sample
 
+            if torch.isnan(model_output).any() or torch.isnan(image).any():
+                raise RuntimeError("NaNs encountered. Try reducing batch size or eta.")
+
         # MODIFIED
-        image = image.clamp(0, 1)
+        image = (image / 2 + 0.5).clamp(0, 1)
+
+        if output_type == "torch":
+            return image
+
+        # image = image.clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
         if output_type == "pil":
             image = self.numpy_to_pil(image)

@@ -34,9 +34,14 @@ class DiffusionTraining:
         self.evaluator = evaluator
         self.train_timesteps = train_timesteps
 
+        self.best_model = None
+
     def save(self, path):
         pipeline = DDIMPipeline(self.model, self.scheduler)
         pipeline.save_pretrained(path)
+
+    def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError
 
     def train(self, train_loader, eval_loader, save_path: str = "./results/diffusion"):
         for epoch in range(self.train_epochs):
@@ -75,10 +80,11 @@ class DiffusionTraining:
             fid = torch.inf
 
             if self.evaluator is not None:
-                fid = self.evaluator.evaluate(self.model, eval_loader, epoch, save_path=save_path)
+                fid = self.evaluator.evaluate(self.model, eval_loader, epoch)
 
             if fid <= best_fid:
                 best_fid = fid 
+                self.best_model = self.model
                 self.save(save_path)
                 
             self.save(save_path)

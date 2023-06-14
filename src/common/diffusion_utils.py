@@ -14,12 +14,12 @@ def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int,
             batch_size, 
             num_inference_steps=num_inference_steps,
             eta=eta,
-            output_type="np.array", 
-        ).images
-        samples = torch.from_numpy(samples)
-        # From (B, H, W, C) to (B, C, H, W)
-        samples = samples.permute(0, 3, 1, 2)
-        samples = samples.to(device)
+            output_type="torch", 
+        )
+        # samples = torch.from_numpy(samples)
+        # # From (B, H, W, C) to (B, C, H, W)
+        # samples = samples.permute(0, 3, 1, 2)
+        # samples = samples.to(device)
         return samples
     
     model.generate = generate
@@ -41,6 +41,7 @@ def evaluate_diffusion(output_dir, eval_batch_size, epoch, pipeline, steps: int 
         generator=torch.manual_seed(seed),
         num_inference_steps=steps, 
         eta=eta,
+        output_type="pil",
     ).images
 
     # Make a grid out of the images

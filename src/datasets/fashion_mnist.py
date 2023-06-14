@@ -22,7 +22,7 @@ def create_dataloader(batch_size: int = 128, transform: transforms.Compose = Non
         del examples["image"]
         return examples
 
-    transformed_dataset = dataset.with_transform(apply_transforms).remove_columns("label")
+    transformed_dataset = dataset.with_transform(apply_transforms)
 
     # create dataloader
     train_dataloader = DataLoader(transformed_dataset["train"], batch_size=batch_size, shuffle=True)

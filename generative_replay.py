@@ -21,7 +21,7 @@ from avalanche.training.plugins import EvaluationPlugin
 from src.continual_learning.strategies import WeightedSoftGenerativeReplay, DiffusionTraining, VAETraining
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
 from src.continual_learning.metrics import ExperienceFIDMetric
-from src.pipelines.ddim_pipeline import DDIMPipeline
+from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline, evaluate_diffusion
 from src.models.vae import MlpVAE, VAE_loss

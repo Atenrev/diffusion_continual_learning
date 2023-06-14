@@ -10,11 +10,13 @@ from src.evaluators.base_evaluator import BaseEvaluator
 
 
 class GenerativeModelEvaluator(BaseEvaluator):
-    def __init__(self, device: str = "cuda"):
+    def __init__(self, device: str = "cuda", save_images=20, save_path="results"):
         self.device = device
+        self.save_images = save_images
+        self.save_path = save_path
         self.reset_fid()
 
-    def evaluate(self, model, dataloader, epoch: int = 0, save_images=20, save_path="results"):
+    def evaluate(self, model, dataloader, epoch: int = 0):
         print("Evaluating FID...")
         self.fid.reset()
 
@@ -32,16 +34,16 @@ class GenerativeModelEvaluator(BaseEvaluator):
         fid = self.fid.compute().cpu().detach().item()
         print(f"Evaluation complete. FID: {fid}")
 
-        if save_images > 0:
-            generated_images = model.generate(save_images)
+        if self.save_images > 0:
+            generated_images = model.generate(self.save_images)
             # To PIL image
             generated_images = generated_images.mul(255).to(torch.uint8)
             generated_images = generated_images.permute(0, 2, 3, 1).cpu().numpy()
             generated_images = [Image.fromarray(img.squeeze()) for img in generated_images]
-            nrows = int(save_images**0.5)
-            ncols = save_images // nrows + save_images % nrows
+            nrows = int(self.save_images**0.5)
+            ncols = self.save_images // nrows + self.save_images % nrows
             generated_images = make_grid(generated_images, rows=nrows, cols=ncols)
-            generated_images.save(os.path.join(save_path, f"generated_images_{epoch}.png"))
+            generated_images.save(os.path.join(self.save_path, f"generated_images_epoch_{epoch}_fid_{fid:.4f}.png"))
 
         return fid
 
