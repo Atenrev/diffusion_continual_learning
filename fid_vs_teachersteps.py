@@ -35,21 +35,21 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", type=str, default="mnist")
 
     parser.add_argument("--model_config_path", type=str,
-                        default="configs/model/diffusion.json")
-    parser.add_argument("--distillation_type", type=str, default="generation",
+                        default="configs/model/ddim_32.json")
+    parser.add_argument("--distillation_type", type=str, default="partial_generation",
                         help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results/diffusion_None_mse_42",
+    parser.add_argument("--teacher_path", type=str, default="results/ddim_32_diffusion_None_mse_42",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (mse, min_snr)")
 
     parser.add_argument("--generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
-    parser.add_argument("--teacher_eta", type=float, default=1.0)
+    parser.add_argument("--teacher_eta", type=float, default=0.0)
 
     parser.add_argument("--num_epochs", type=int, default=500)
-    parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--eval_batch_size", type=int, default=256)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--eval_batch_size", type=int, default=128)
 
     parser.add_argument("--save_every", type=int, default=1,
                         help="Save model every n iterations (only for distillation)")
@@ -127,7 +127,7 @@ def main(args):
     teacher = teacher_pipeline.unet.to(device)
 
     fid_list = []
-    gen_steps = [1, 2, 5, 10, 20, 50, 100, 200, 500]
+    gen_steps = [1, 2, 5, 10, 20, 50, 100]
     for gen_step in gen_steps:
         print(
             f"\n\n======= Training with {gen_step} generation steps =======\n")

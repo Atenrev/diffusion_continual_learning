@@ -10,10 +10,11 @@ from src.evaluators.base_evaluator import BaseEvaluator
 
 
 class GenerativeModelEvaluator(BaseEvaluator):
-    def __init__(self, device: str = "cuda", save_images=20, save_path="results"):
+    def __init__(self, device: str = "cuda", save_images=20, save_path="results", fid_feature_size: int = 2048):
         self.device = device
         self.save_images = save_images
         self.save_path = save_path
+        self.fid_feature_size = fid_feature_size
         self.reset_fid()
 
     def evaluate(self, model, dataloader, epoch: int = 0):
@@ -32,6 +33,7 @@ class GenerativeModelEvaluator(BaseEvaluator):
             self.fid.update(batch, real=True)
 
         fid = self.fid.compute().cpu().detach().item()
+        # fid = 0
         print(f"Evaluation complete. FID: {fid}")
 
         if self.save_images > 0:
@@ -48,7 +50,7 @@ class GenerativeModelEvaluator(BaseEvaluator):
         return {"fid": fid}
 
     def reset_fid(self):
-        self.fid = FrechetInceptionDistance(normalize=True, feature=64)
+        self.fid = FrechetInceptionDistance(normalize=True, feature=self.fid_feature_size)
 
         if self.device == "cuda":
             self.fid.cuda()

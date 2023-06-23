@@ -12,7 +12,7 @@ def plot_bar(x, y, x_label, y_label, title, save_path):
     # Adding labels and title
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    ax.set_title('Number of Samples for Each Class')
+    ax.set_title(title)
 
     # Adjusting the appearance
     ax.spines['top'].set_visible(False)
@@ -27,7 +27,7 @@ def plot_bar(x, y, x_label, y_label, title, save_path):
 
     # Save the graph to disk
     plt.tight_layout()
-    plt.savefig('mnist_statistics.png')
+    plt.savefig(save_path)
 
 
 def plot_line_graph(x, y, x_label, y_label, title, save_path):

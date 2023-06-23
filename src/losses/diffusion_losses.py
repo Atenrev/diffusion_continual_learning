@@ -25,6 +25,16 @@ class MSELoss(DiffusionLoss):
     def __call__(self, target: torch.Tensor, pred: torch.Tensor, timesteps: Optional[torch.Tensor] = None):
         loss = F.mse_loss(target, pred)
         return loss
+    
+
+class SmoothL1Loss(DiffusionLoss):
+    
+        def __init__(self, scheduler: SchedulerMixin):
+            super().__init__(scheduler)
+    
+        def __call__(self, target: torch.Tensor, pred: torch.Tensor, timesteps: Optional[torch.Tensor] = None):
+            loss = F.smooth_l1_loss(target, pred)
+            return loss
 
 
 class MinSNRLoss(DiffusionLoss):

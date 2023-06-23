@@ -2,12 +2,12 @@ import os
 import torch
 import torch.optim.lr_scheduler
 
+from typing import List, Union
 from PIL import Image
 
 
 def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int, eta: float = 1.0, output_type: str = "torch"):
-    def generate(batch_size: int) -> torch.Tensor:
-        device = next(model.parameters()).device
+    def generate(batch_size: int, target_steps: Union[List[int], int] = num_inference_steps) -> torch.Tensor:
         pipeline = pipeline_class(unet=model, scheduler=scheduler)
         pipeline.set_progress_bar_config(disable=True)
         samples = pipeline(
@@ -15,6 +15,7 @@ def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int,
             num_inference_steps=num_inference_steps,
             eta=eta,
             output_type=output_type, 
+            target_steps=target_steps,
         )
         return samples
     

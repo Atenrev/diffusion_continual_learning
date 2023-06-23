@@ -76,6 +76,42 @@ def betas_for_alpha_bar(num_diffusion_timesteps, max_beta=0.999) -> torch.Tensor
     return torch.tensor(betas, dtype=torch.float32)
 
 
+def rescale_zero_terminal_snr(betas):
+    """
+    Rescales betas to have zero terminal SNR Based on https://arxiv.org/pdf/2305.08891.pdf (Algorithm 1)
+
+
+    Args:
+        betas (`torch.FloatTensor`):
+            the betas that the scheduler is being initialized with.
+
+    Returns:
+        `torch.FloatTensor`: rescaled betas with zero terminal SNR
+    """
+    # Convert betas to alphas_bar_sqrt
+    alphas = 1.0 - betas
+    alphas_cumprod = torch.cumprod(alphas, dim=0)
+    alphas_bar_sqrt = alphas_cumprod.sqrt()
+
+    # Store old values.
+    alphas_bar_sqrt_0 = alphas_bar_sqrt[0].clone()
+    alphas_bar_sqrt_T = alphas_bar_sqrt[-1].clone()
+
+    # Shift so the last timestep is zero.
+    alphas_bar_sqrt -= alphas_bar_sqrt_T
+
+    # Scale so the first timestep is back to the old value.
+    alphas_bar_sqrt *= alphas_bar_sqrt_0 / (alphas_bar_sqrt_0 - alphas_bar_sqrt_T)
+
+    # Convert alphas_bar_sqrt to betas
+    alphas_bar = alphas_bar_sqrt**2  # Revert sqrt
+    alphas = alphas_bar[1:] / alphas_bar[:-1]  # Revert cumprod
+    alphas = torch.cat([alphas_bar[0:1], alphas])
+    betas = 1 - alphas
+
+    return betas
+
+
 class DDIMScheduler(SchedulerMixin, ConfigMixin):
     """
     Denoising diffusion implicit models is a scheduler that extends the denoising procedure introduced in denoising
@@ -143,6 +179,7 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
         dynamic_thresholding_ratio: float = 0.995,
         clip_sample_range: float = 1.0,
         sample_max_value: float = 1.0,
+        rescale_betas_zero_snr: bool = True,
     ):
         if trained_betas is not None:
             self.betas = torch.tensor(trained_betas, dtype=torch.float32)
@@ -158,6 +195,10 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
             self.betas = betas_for_alpha_bar(num_train_timesteps)
         else:
             raise NotImplementedError(f"{beta_schedule} does is not implemented for {self.__class__}")
+        
+         # Rescale for zero SNR
+        if rescale_betas_zero_snr:
+            self.betas = rescale_zero_terminal_snr(self.betas)
 
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
@@ -189,13 +230,18 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
         """
         return sample
 
+    def _get_alpha_prod_t_prev(self, prev_timestep):
+        return torch.where(
+            prev_timestep >= 0, self.alphas_cumprod[prev_timestep], self.final_alpha_cumprod)
+
     def _get_variance(self, timestep, prev_timestep):
         alpha_prod_t = self.alphas_cumprod[timestep]
-        alpha_prod_t_prev = self.alphas_cumprod[prev_timestep] if prev_timestep >= 0 else self.final_alpha_cumprod
+        # alpha_prod_t_prev = self.alphas_cumprod[prev_timestep] if prev_timestep >= 0 else self.final_alpha_cumprod
+        alpha_prod_t_prev = self._get_alpha_prod_t_prev(prev_timestep)
         beta_prod_t = 1 - alpha_prod_t
         beta_prod_t_prev = 1 - alpha_prod_t_prev
 
-        variance = (beta_prod_t_prev / beta_prod_t) * (1 - alpha_prod_t / alpha_prod_t_prev)
+        variance = (beta_prod_t_prev / beta_prod_t) * (1 - alpha_prod_t / (alpha_prod_t_prev + 1e-8))
 
         return variance
 
@@ -253,12 +299,22 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
                 f" {self.config.num_train_timesteps} as the unet model trained with this scheduler can only handle"
                 f" maximal {self.config.num_train_timesteps} timesteps."
             )
-
+        
         self.num_inference_steps = num_inference_steps
-        step_ratio = (self.config.num_train_timesteps - target_steps) // self.num_inference_steps
+        self.target_steps = target_steps
+
         # creates integer timesteps by multiplying by ratio
         # casting to int to avoid issues when num_inference_step is power of 3
-        timesteps = (np.arange(target_steps, num_inference_steps) * step_ratio).round()[::-1].copy().astype(np.int64)
+        if isinstance(target_steps, int):
+            step_ratio = self.config.num_train_timesteps / self.num_inference_steps
+            timesteps = np.round(np.arange(self.config.num_train_timesteps, target_steps, -step_ratio)).astype(np.int64)
+            timesteps -= 1
+        else:
+            target_steps = target_steps[::-1]
+            step_ratio = (self.config.num_train_timesteps - target_steps) / self.num_inference_steps
+            timesteps = (np.outer(np.arange(num_inference_steps, 0, -1), step_ratio)).round().astype(np.int64)
+            timesteps -= 1 - target_steps
+
         self.timesteps = torch.from_numpy(timesteps).to(device)
         self.timesteps += self.config.steps_offset
 
@@ -316,22 +372,38 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
         # - pred_prev_sample -> "x_t-1"
 
         # 1. get previous step value (=t-1)
-        prev_timestep = timestep - self.config.num_train_timesteps // self.num_inference_steps
+        prev_timestep = timestep - (self.config.num_train_timesteps - self.target_steps) // self.num_inference_steps
+
+        # if torch.isnan(prev_timestep).any():
+        #     print("WARNING: NaNs encountered.")
 
         # 2. compute alphas, betas
         alpha_prod_t = self.alphas_cumprod[timestep]
-        alpha_prod_t_prev = self.alphas_cumprod[prev_timestep] if prev_timestep >= 0 else self.final_alpha_cumprod
+        # alpha_prod_t_prev = self.alphas_cumprod[prev_timestep] if prev_timestep >= 0 else self.final_alpha_cumprod
+        alpha_prod_t_prev = self._get_alpha_prod_t_prev(prev_timestep)
+        if not alpha_prod_t_prev.shape:
+            alpha_prod_t_prev = alpha_prod_t_prev[None]
+        alpha_prod_t_prev = alpha_prod_t_prev[:, None, None, None].to(sample.device)
 
-        beta_prod_t = 1 - alpha_prod_t
+        beta_prod_t = (1 - alpha_prod_t)
+        if not beta_prod_t.shape:
+            beta_prod_t = beta_prod_t[None]
+        beta_prod_t = beta_prod_t[:, None, None, None].to(sample.device)
+        if not alpha_prod_t.shape:
+            alpha_prod_t = alpha_prod_t[None]
+        alpha_prod_t = alpha_prod_t[:, None, None, None].to(sample.device)
+
+        # if torch.isnan(alpha_prod_t).any() or torch.isnan(beta_prod_t).any() or torch.isnan(alpha_prod_t_prev).any():
+        #     print("WARNING: NaNs encountered.")
 
         # 3. compute predicted original sample from predicted noise also called
         # "predicted x_0" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
         if self.config.prediction_type == "epsilon":
-            pred_original_sample = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
+            pred_original_sample = (sample - beta_prod_t ** (0.5) * model_output) / (alpha_prod_t + 1e-8) ** (0.5)
             pred_epsilon = model_output
         elif self.config.prediction_type == "sample":
             pred_original_sample = model_output
-            pred_epsilon = (sample - alpha_prod_t ** (0.5) * pred_original_sample) / beta_prod_t ** (0.5)
+            pred_epsilon = (sample - alpha_prod_t ** (0.5) * pred_original_sample) / (beta_prod_t + 1e-8) ** (0.5)
         elif self.config.prediction_type == "v_prediction":
             pred_original_sample = (alpha_prod_t**0.5) * sample - (beta_prod_t**0.5) * model_output
             pred_epsilon = (alpha_prod_t**0.5) * model_output + (beta_prod_t**0.5) * sample
@@ -341,6 +413,12 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
                 " `v_prediction`"
             )
 
+        # if torch.isnan(pred_original_sample).any():
+        #     print("WARNING: NaNs encountered.")
+
+        # if torch.isnan(pred_epsilon).any():
+        #     print("WARNING: NaNs encountered.")
+
         # 4. Clip or threshold "predicted x_0"
         if self.config.thresholding:
             pred_original_sample = self._threshold_sample(pred_original_sample)
@@ -349,20 +427,35 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
                 -self.config.clip_sample_range, self.config.clip_sample_range
             )
 
+        # if torch.isnan(pred_original_sample).any():
+        #     print("WARNING: NaNs encountered.")
+
         # 5. compute variance: "sigma_t(η)" -> see formula (16)
         # σ_t = sqrt((1 − α_t−1)/(1 − α_t)) * sqrt(1 − α_t/α_t−1)
         variance = self._get_variance(timestep, prev_timestep)
         std_dev_t = eta * variance ** (0.5)
+        if not std_dev_t.shape:
+            std_dev_t = std_dev_t[None]
+        std_dev_t = std_dev_t[:, None, None, None].to(sample.device)
+
+        # if torch.isnan(std_dev_t).any():
+        #     print("WARNING: NaNs encountered.")
 
         if use_clipped_model_output:
             # the pred_epsilon is always re-derived from the clipped x_0 in Glide
             pred_epsilon = (sample - alpha_prod_t ** (0.5) * pred_original_sample) / beta_prod_t ** (0.5)
 
         # 6. compute "direction pointing to x_t" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
-        pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * pred_epsilon
+        pred_sample_direction = torch.clamp((1 - alpha_prod_t_prev - std_dev_t**2), 0.0, 1.0) ** (0.5) * pred_epsilon
+
+        # if torch.isnan(pred_sample_direction).any():
+        #     print("WARNING: NaNs encountered.")
 
         # 7. compute x_t without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
         prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
+
+        # if torch.isnan(prev_sample).any():
+        #     print("WARNING: NaNs encountered.")
 
         if eta > 0:
             if variance_noise is not None and generator is not None:
@@ -375,9 +468,12 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
                 variance_noise = randn_tensor(
                     model_output.shape, generator=generator, device=model_output.device, dtype=model_output.dtype
                 )
-            variance = std_dev_t * variance_noise
 
+            variance = std_dev_t * variance_noise
             prev_sample = prev_sample + variance
+
+        # if torch.isnan(prev_sample).any():
+        #     print("WARNING: NaNs encountered.")
 
         if not return_dict:
             return (prev_sample,)

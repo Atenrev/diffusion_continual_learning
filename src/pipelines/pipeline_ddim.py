@@ -100,25 +100,31 @@ class DDIMPipeline(DiffusionPipeline):
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
                 f" size of {batch_size}. Make sure the batch size matches the length of the generators."
             )
+        
+        if isinstance(target_steps, torch.Tensor):
+            target_steps = target_steps.cpu().numpy()
 
         image = randn_tensor(image_shape, generator=generator, device=self.device, dtype=self.unet.dtype)
 
         # set step values
-        self.scheduler.set_timesteps(num_inference_steps, target_steps=target_steps)
+        self.scheduler.set_timesteps(num_inference_steps, target_steps)
 
         for t in self.progress_bar(self.scheduler.timesteps):
             # 1. predict noise model_output
-            model_output = self.unet(image, t).sample
+            model_output = self.unet(image, t.to(self.device)).sample
+
+            # if torch.isnan(model_output).any():
+            #     print("WARNING: NaNs encountered in model output.")
 
             # 2. predict previous mean of image x_t-1 and add variance depending on eta
             # eta corresponds to η in paper and should be between [0, 1]
             # do x_t -> x_t-1
             image = self.scheduler.step(
                 model_output, t, image, eta=eta, use_clipped_model_output=use_clipped_model_output, generator=generator
-            ).prev_sample
+            ).prev_sample.type(self.unet.dtype)
 
-            if torch.isnan(model_output).any() or torch.isnan(image).any():
-                raise RuntimeError("NaNs encountered. Try reducing batch size or eta.")
+            # if torch.isnan(image).any():
+            #     print("WARNING: NaNs encountered in image.")
 
         if output_type == "torch_raw":
             return image

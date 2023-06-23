@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 from tqdm import tqdm
-from typing import Optional
+from typing import Optional, Tuple
 from diffusers import DDIMPipeline, SchedulerMixin
 
 from src.losses.diffusion_losses import DiffusionLoss

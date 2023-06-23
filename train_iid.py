@@ -14,7 +14,7 @@ from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline
 from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.models.vae import MlpVAE, VAE_loss
-from src.losses.diffusion_losses import MSELoss, MinSNRLoss
+from src.losses.diffusion_losses import MSELoss, MinSNRLoss, SmoothL1Loss
 from src.trainers.diffusion_training import DiffusionTraining
 from src.trainers.diffusion_distillation import (
     GaussianDistillation,
@@ -32,26 +32,26 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--image_size", type=int, default=32)
     parser.add_argument("--channels", type=int, default=1)
 
-    parser.add_argument("--dataset", type=str, default="mnist")
+    parser.add_argument("--dataset", type=str, default="fashion_mnist")
 
     parser.add_argument("--model_config_path", type=str,
-                        default="configs/model/diffusion.json")
+                        default="configs/model/ddim_minimal.json")
     parser.add_argument("--training_type", type=str, default="diffusion",
                         help="Type of training to use (diffusion, generative)")
     parser.add_argument("--distillation_type", type=str, default=None,
                         help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default=None,
+    parser.add_argument("--teacher_path", type=str, default=None, #"results/ddim_32_diffusion_None_mse_42",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
-                        help="Criterion to use for training (mse, min_snr)")
+                        help="Criterion to use for training (smooth_l1, mse, min_snr)")
 
     parser.add_argument("--generation_steps", type=int, default=20)
     parser.add_argument("--teacher_generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
 
-    parser.add_argument("--num_epochs", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--eval_batch_size", type=int, default=256)
+    parser.add_argument("--num_epochs", type=int, default=50)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--eval_batch_size", type=int, default=128)
 
     parser.add_argument("--save_every", type=int, default=1,
                         help="Save model every n iterations (only for distillation)")
@@ -64,7 +64,8 @@ def main(args):
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    run_name = f"{args.training_type}_{args.distillation_type}_{args.criterion}_{args.seed}"
+    model_name = args.model_config_path.split("/")[-1].split(".")[0]
+    run_name = f"{model_name}_{args.training_type}_{args.distillation_type}_{args.criterion}_{args.seed}"
     results_folder = os.path.join("results", run_name)
     os.makedirs(results_folder, exist_ok=True)
 
@@ -108,6 +109,8 @@ def main(args):
         wrap_in_pipeline(model, noise_scheduler,
                          DDIMPipeline, args.generation_steps, args.eta)
         model = model.to(device)
+        print("Number of parameters:", sum(p.numel()
+                                             for p in model.parameters() if p.requires_grad))
 
         optimizer = Adam(model.parameters(), lr=model_config.optimizer.lr)
 
@@ -115,6 +118,8 @@ def main(args):
             criterion = MSELoss(noise_scheduler)
         elif args.criterion == "min_snr":
             criterion = MinSNRLoss(noise_scheduler)
+        elif args.criterion == "smooth_l1":
+            criterion = SmoothL1Loss(noise_scheduler)
         else:
             raise NotImplementedError
 

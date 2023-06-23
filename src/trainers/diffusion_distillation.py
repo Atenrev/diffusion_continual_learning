@@ -101,7 +101,9 @@ class GaussianDistillation(DiffusionDistillation):
         super().__init__(student, scheduler, optimizer, criterion, train_mb_size, train_iterations, eval_mb_size, device, train_timesteps, evaluator)
 
     def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        noise = torch.randn((self.train_mb_size, 3, 256, 256)).to(self.device)
+        channels = self.model.config.in_channels
+        sample_size = self.model.config.sample_size
+        noise = torch.randn((self.train_mb_size, channels, sample_size, sample_size)).to(self.device)
 
         target = self.teacher(noise, timesteps, return_dict=False)[0]
         student_pred = self.model(noise, timesteps, return_dict=False)[0]
@@ -163,7 +165,10 @@ class PartialGenerationDistillation(DiffusionDistillation):
         self.eta = eta
 
     def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        raise NotImplementedError
+        generated_images = self.teacher.generate(self.train_mb_size, timesteps)
+        target = self.teacher(generated_images, timesteps, return_dict=False)[0]
+        student_pred = self.model(generated_images, timesteps, return_dict=False)[0]
+        return student_pred, target
     
 
 class NoDistillation(DiffusionDistillation):

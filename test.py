@@ -8,7 +8,7 @@ torch.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-pipeline = DDIMPipeline.from_pretrained("./results/diffusion_None_42", torch_dtype=torch.float32)
+pipeline = DDIMPipeline.from_pretrained("./results/diffusion_None_mse_42", torch_dtype=torch.float32)
 pipeline = pipeline.to("cuda")
 
 import os
@@ -33,6 +33,7 @@ def evaluate(eval_batch_size, pipeline, steps: int = 50):
         generator=torch.manual_seed(seed),
         num_inference_steps=steps,
         eta=0.0,
+        output_type="pil",
     ).images
 
     # Make a grid out of the images
@@ -41,4 +42,4 @@ def evaluate(eval_batch_size, pipeline, steps: int = 50):
     # Show the image grid in the notebook
     image_grid.show()
 
-evaluate(1, pipeline, steps=20) 
+evaluate(40, pipeline, steps=20) 

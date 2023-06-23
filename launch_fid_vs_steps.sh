@@ -1,0 +1,1 @@
+condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python fid_vs_teachersteps.py'
