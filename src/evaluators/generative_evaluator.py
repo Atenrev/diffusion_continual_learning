@@ -10,7 +10,7 @@ from src.evaluators.base_evaluator import BaseEvaluator
 
 
 class GenerativeModelEvaluator(BaseEvaluator):
-    def __init__(self, device: str = "cuda", save_images=20, save_path="results", fid_feature_size: int = 2048):
+    def __init__(self, device: str = "cuda", save_images=40, save_path="results", fid_feature_size: int = 2048):
         self.device = device
         self.save_images = save_images
         self.save_path = save_path
@@ -23,6 +23,8 @@ class GenerativeModelEvaluator(BaseEvaluator):
 
         for batch in tqdm(dataloader):
             batch = batch["pixel_values"].to(self.device)
+            if batch.min() < 0:
+                batch = (batch + 1) / 2
             pred = model.generate(batch.shape[0])
 
             if batch.shape[1] == 1:
@@ -37,7 +39,7 @@ class GenerativeModelEvaluator(BaseEvaluator):
         print(f"Evaluation complete. FID: {fid}")
 
         if self.save_images > 0:
-            generated_images = model.generate(self.save_images)
+            generated_images = model.generate(self.save_images, output_type="torch")
             # To PIL image
             generated_images = generated_images.mul(255).to(torch.uint8)
             generated_images = generated_images.permute(0, 2, 3, 1).cpu().numpy()

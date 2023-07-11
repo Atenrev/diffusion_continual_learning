@@ -1,7 +1,7 @@
 import torch
 
-from typing import Optional, Sequence, List, Union
-from tqdm import tqdm
+from typing import Optional, Iterable, List, Union
+from copy import deepcopy
 
 from torch import nn
 from torch.optim import Optimizer
@@ -13,13 +13,14 @@ from avalanche.training.plugins import (
     SupervisedPlugin,
     EvaluationPlugin,
 )
+from avalanche.benchmarks import CLExperience, CLStream
 from avalanche.training.templates.base import BaseTemplate
 from avalanche.training.templates import SupervisedTemplate
 from avalanche.logging import InteractiveLogger
 from diffusers import SchedulerMixin
 
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin, TrainGeneratorAfterExpPlugin
-from src.continual_learning.metrics import ExperienceFIDMetric
+from src.continual_learning.metrics import TrainedExperienceFIDMetric
 
 
 class WeightedSoftGenerativeReplay(SupervisedTemplate):
@@ -172,7 +173,7 @@ class WeightedSoftGenerativeReplay(SupervisedTemplate):
 
 def get_default_generator_logger():
     return EvaluationPlugin(
-        [ExperienceFIDMetric()],
+        [TrainedExperienceFIDMetric()],
         loggers=[InteractiveLogger()]
     )
 
@@ -198,7 +199,9 @@ class DiffusionTraining(SupervisedTemplate):
         evaluator: EvaluationPlugin = get_default_generator_logger(),
         eval_every=-1,
         train_timesteps: int = 1000,
+        replay_start_timestep: int = 0,
         generation_timesteps: int = 10,
+        lambd: float = 5,
         **base_kwargs
     ):
         """
@@ -219,6 +222,9 @@ class DiffusionTraining(SupervisedTemplate):
             only at the end of the learning experience. Values >0 mean that
             `eval` is called every `eval_every` epochs and at the end of the
             learning experience.
+        :param train_timesteps: The number of timesteps to train the model for.
+        :param generation_timesteps: The number of timesteps to generate for.
+        :param lambd: The lambda parameter for the replay loss.
         :param \*\*base_kwargs: any additional
             :class:`~avalanche.training.BaseTemplate` constructor arguments.
         """
@@ -238,6 +244,11 @@ class DiffusionTraining(SupervisedTemplate):
         self.scheduler = scheduler
         self.train_timesteps = train_timesteps
         self.generation_timesteps = generation_timesteps
+        self.old_model = None
+        self.untrained_generator = True
+        self.train_exp_id = 0
+        self.replay_start_timestep = replay_start_timestep
+        self.lambd = lambd
 
     def _extract_into_tensor(self, arr, timesteps, broadcast_shape):
         """
@@ -270,22 +281,33 @@ class DiffusionTraining(SupervisedTemplate):
         Compute the loss for the current minibatch.
         """
         if self.experience.current_experience == 0 or not self.model.training:
-            return self.min_snr_weighting(self.noise_x, self.mb_output, self.timesteps)
+            return self._criterion(self.noise_x, self.mb_output)
 
-        # TODO: This only works for replay_size = None...
         start_of_replay = self.mb_x.shape[0] // 2 
         
-        real_data_loss = self.min_snr_weighting(self.noise_x[:start_of_replay], self.mb_output[:start_of_replay], self.timesteps[:start_of_replay])
-        # replay_data_loss = self.min_snr_weighting(self.noise_x[start_of_replay:], self.mb_output[start_of_replay:])
-        output = self.model(self.mb_x[start_of_replay:], self.timesteps[start_of_replay:], return_dict=False)[0]
-        replay_data_loss = self.min_snr_weighting(self.noise_x[start_of_replay:], output, self.timesteps[start_of_replay:]) * 5
-        # Clip the replay loss to avoid exploding gradients
-        # replay_data_loss = torch.clamp(replay_data_loss, 0, real_data_loss.item())
+        real_data_loss = self._criterion(self.noise_x[:start_of_replay], self.mb_output[:start_of_replay])
+        replay_data_loss = self._criterion(self.noise_x[start_of_replay:], self.mb_output[start_of_replay:]) * self.lambd
+        # output = self.model(self.mb_x[start_of_replay:], self.timesteps[start_of_replay:], return_dict=False)[0]
+        # replay_data_loss = self._criterion(self.noise_x[start_of_replay:], output) * 10
         return ((1/(self.experience.current_experience+1)) * real_data_loss
                 + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss)
     
     def forward(self):
+        batch_size = self.mbatch[0].shape[0]
         noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, self.timesteps)
+
+        if not self.untrained_generator:
+            assert self.old_model is not None
+            noise_replay = torch.randn(self.mbatch[0].shape).to(self.device)
+            # Below timestep 50, the loss impact is minimal. Ref: TODO
+            timesteps_replay = torch.randint(
+                self.replay_start_timestep, self.scheduler.config.num_train_timesteps, (batch_size,), device=self.device
+            ).long()
+            noise_prediction = self.old_model(noise_replay, timesteps_replay, return_dict=False)[0]
+            noisy_images = torch.cat([noisy_images, noise_replay], dim=0)
+            self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
+            self.timesteps = torch.cat([self.timesteps, timesteps_replay], dim=0)
+
         return self.model(noisy_images, self.timesteps, return_dict=False)[0]
     
     def training_epoch(self, **kwargs):
@@ -327,14 +349,29 @@ class DiffusionTraining(SupervisedTemplate):
 
             # Optimization step
             self._before_update(**kwargs)
+
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+
             self.optimizer_step()
             self._after_update(**kwargs)
 
             self._after_training_iteration(**kwargs)
 
+    def _before_training_exp(self, **kwargs):
+        """
+        Called before the training of a new experience starts.
+        """
+        self.train_exp_id = self.experience.current_experience
+
+        if self.untrained_generator:
+            return super()._before_training_exp(**kwargs)
+        
+        self.old_model = deepcopy(self.model)
+        self.old_model.eval()
+        return super()._before_training_exp(**kwargs)
+
     def _after_training_exp(self, **kwargs):
-        self.untrained_solver = False
+        self.untrained_generator = False
         return super()._after_training_exp(**kwargs)
     
     def eval_epoch(self, **kwargs):
@@ -344,11 +381,51 @@ class DiffusionTraining(SupervisedTemplate):
             self._before_eval_iteration(**kwargs)
 
             self._before_eval_forward(**kwargs)
-            self.mb_output = self.model.generate(self.mbatch[0].shape[0])
+            self.mb_output = self.model.generate(self.mbatch[0].shape[0], output_type="torch")
             self._after_eval_forward(**kwargs)
             # self.loss = self.criterion()
 
             self._after_eval_iteration(**kwargs)
+
+    @torch.no_grad()
+    def eval(
+        self,
+        exp_list: Union[CLExperience, CLStream],
+        **kwargs,
+    ):
+        """
+        Evaluate the current model on a series of experiences and
+        returns the last recorded value for each metric.
+
+        :param exp_list: CL experience information.
+        :param kwargs: custom arguments.
+
+        :return: dictionary containing last recorded value for
+            each metric name
+        """
+        # eval can be called inside the train method.
+        # Save the shared state here to restore before returning.
+        prev_train_state = self._save_train_state()
+        self.is_training = False
+        self.model.eval()
+
+        if not isinstance(exp_list, Iterable):
+            exp_list = [exp_list]
+        self.current_eval_stream = exp_list
+
+        self._before_eval(**kwargs)
+        for self.experience in exp_list:
+            # We don't need to evaluate experiences that have not been trained yet.
+            if self.experience.current_experience > self.train_exp_id:
+                continue
+            self._before_eval_exp(**kwargs)
+            self._eval_exp(**kwargs)
+            self._after_eval_exp(**kwargs)
+
+        self._after_eval(**kwargs)
+
+        # restore previous shared state.
+        self._load_train_state(prev_train_state)
         
 
 class VAETraining(SupervisedTemplate):

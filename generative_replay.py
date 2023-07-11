@@ -7,7 +7,8 @@ import datetime
 from torchvision import transforms
 from diffusers import UNet2DModel, DDIMScheduler
 from torch.nn import CrossEntropyLoss
-from avalanche.benchmarks import SplitMNIST
+
+from avalanche.benchmarks import SplitMNIST, SplitFMNIST
 from avalanche.models import SimpleMLP
 from avalanche.evaluation.metrics import (
     forgetting_metrics,
@@ -20,27 +21,33 @@ from avalanche.training.plugins import EvaluationPlugin
 
 from src.continual_learning.strategies import WeightedSoftGenerativeReplay, DiffusionTraining, VAETraining
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
-from src.continual_learning.metrics import ExperienceFIDMetric
+from src.continual_learning.metrics import TrainedExperienceFIDMetric
 from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline, evaluate_diffusion
 from src.models.vae import MlpVAE, VAE_loss
+from src.models.simple_cnn import SimpleCNN
 
 
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, default="split_fmnist")
+
     parser.add_argument("--generator_type", type=str, default="diffusion")
     parser.add_argument("--generator_config_path", type=str,
-                        default="configs/model/diffusion.json")
+                        default="configs/model/ddim_medium.json")
     parser.add_argument("--generator_strategy_config_path",
                         type=str, default="configs/strategy/diffusion.json")
-    parser.add_argument("--solver_type", type=str, default=None)
-    parser.add_argument("--solver_config_path", type=str,
-                        default="configs/model/mlp.json")
-    parser.add_argument("--solver_strategy_config_path", type=str,
-                        default="configs/strategy/mlp_w_diffusion.json")
+    
     parser.add_argument("--generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=int, default=0.0)
+    
+    parser.add_argument("--solver_type", type=str, default="cnn")
+    parser.add_argument("--solver_config_path", type=str,
+                        default="configs/model/cnn.json")
+    parser.add_argument("--solver_strategy_config_path", type=str,
+                        default="configs/strategy/cnn_w_diffusion.json")
+
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--cuda",
@@ -49,9 +56,9 @@ def __parse_args() -> argparse.Namespace:
         help="Select zero-indexed cuda device. -1 to use CPU.",
     )
     parser.add_argument("--output_dir", type=str,
-                        default="results/generative_replay/diffusion_classifier")
-    parser.add_argument("--project_name", type=str, default="master-thesis")
-    parser.add_argument("--debug", action="store_true", default=True)
+                        default="results/generative_replay/")
+    parser.add_argument("--project_name", type=str, default="master-thesis-genreplay")
+    parser.add_argument("--debug", action="store_true", default=False)
     return parser.parse_args()
 
 
@@ -72,9 +79,14 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
         noise_scheduler = DDIMScheduler(
             num_train_timesteps=model_config.scheduler.train_timesteps)
         wrap_in_pipeline(generator_model, noise_scheduler,
-                         DDIMPipeline, generation_steps, eta)
+                         DDIMPipeline, generation_steps, eta, def_output_type="torch_raw")
         gen_eval_plugin = EvaluationPlugin(
-            ExperienceFIDMetric(),
+            loss_metrics(
+                minibatch=True,
+                epoch=True,
+                epoch_running=True
+            ),
+            TrainedExperienceFIDMetric(),
             loggers=loggers,
         )
         generator_strategy = DiffusionTraining(
@@ -88,12 +100,6 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
             device=device,
             evaluator=gen_eval_plugin,
             train_timesteps=model_config.scheduler.train_timesteps,
-            plugins=[
-                UpdatedGenerativeReplayPlugin(
-                    increasing_replay_size=strategy_config.increasing_replay_size,
-                    replay_size=strategy_config.replay_size,
-                )
-            ],
         )
     elif generator_type == "vae":
         generator = MlpVAE(
@@ -111,7 +117,7 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
             betas=(0.9, 0.999),
         )
         gen_eval_plugin = EvaluationPlugin(
-            ExperienceFIDMetric(),
+            TrainedExperienceFIDMetric(),
             loggers=loggers,
         )
         generator_strategy = VAETraining(
@@ -138,11 +144,20 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
 
 
 def get_solver_strategy(solver_type: str, model_config, strategy_config, generator_strategy, loggers, device):
-    model = SimpleMLP(
-        input_size=model_config.model.input_size *
-        model_config.model.input_size * model_config.model.channels,
-        num_classes=model_config.model.n_classes
-    )
+    if solver_type == "mlp":
+        model = SimpleMLP(
+            input_size=model_config.model.input_size *
+            model_config.model.input_size * model_config.model.channels,
+            num_classes=model_config.model.n_classes
+        )
+    elif solver_type == "cnn":
+        model = SimpleCNN(
+            n_channels=model_config.model.channels,
+            num_classes=model_config.model.n_classes
+        )
+    else:
+        raise NotImplementedError(
+            f"Solver type {solver_type} not implemented")
 
     eval_plugin = EvaluationPlugin(
         accuracy_metrics(
@@ -152,13 +167,13 @@ def get_solver_strategy(solver_type: str, model_config, strategy_config, generat
             experience=True,
             stream=True,
         ),
-        loss_metrics(
-            minibatch=True,
-            epoch=True,
-            epoch_running=True,
-            experience=True,
-            stream=True,
-        ),
+        # loss_metrics(
+        #     minibatch=True,
+        #     epoch=True,
+        #     epoch_running=True,
+        #     experience=True,
+        #     stream=True,
+        # ),
         forgetting_metrics(experience=True, stream=True),
         confusion_matrix_metrics(
             stream=True, wandb=True, class_names=[str(i) for i in range(10)]
@@ -196,8 +211,9 @@ def main(args):
     run_name = f"generative_replay_{args.generator_type}_{args.solver_type}"
     run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
+    output_dir = os.path.join(args.output_dir, args.dataset, run_name)
     output_dir = os.path.join(
-        args.output_dir, "debug" if args.debug else "real", run_name)
+        output_dir, "debug" if args.debug else "real", run_name)
     os.makedirs(output_dir, exist_ok=True)
 
     # --- BENCHMARK CREATION
@@ -206,23 +222,45 @@ def main(args):
     train_transform = transforms.Compose(
         [
             transforms.Resize((image_size, image_size), antialias=True),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
         ]
     )
-    benchmark = SplitMNIST(
-        n_experiences=5,
-        seed=args.seed,
-        train_transform=train_transform,
-        eval_transform=train_transform,
-    )
+
+    if args.dataset == "split_fmnist":
+        benchmark = SplitFMNIST(
+            n_experiences=5,
+            seed=args.seed,
+            train_transform=train_transform,
+            eval_transform=train_transform,
+        )
+    elif args.dataset == "split_mnist":
+        benchmark = SplitMNIST(
+            n_experiences=5,
+            seed=args.seed,
+            train_transform=train_transform,
+            eval_transform=train_transform,
+        )
+    else:
+        raise NotImplementedError(
+            f"Dataset {args.dataset} not implemented")
 
     # --- LOGGER CREATION
     loggers = [InteractiveLogger()]
-
+    
     if not args.debug:
+        all_configs = {
+            "args": vars(args),
+            "generator_config": generator_config,
+            "generator_strategy_config": get_configuration(args.generator_strategy_config_path),
+        }
+        if args.solver_type is not None:
+            all_configs["solver_config"] = get_configuration(args.solver_config_path)
+            all_configs["solver_strategy_config"] = get_configuration(args.solver_strategy_config_path)
         loggers.append(WandBLogger(
             project_name=args.project_name,
             run_name=run_name,
-            config=vars(args)
+            config=all_configs,
         ))
 
     # --- STRATEGY CREATION
@@ -251,23 +289,21 @@ def main(args):
 
     # TRAINING LOOP
     print("Starting experiment...")
-    n_samples = 20
+    n_samples = 100
     for experience in benchmark.train_stream:
         print("Start of experience ", experience.current_experience)
         cl_strategy.train(experience)
         print("Training completed")
 
         print("Computing accuracy on the whole test set")
-        # cl_strategy.eval(benchmark.test_stream)
+        cl_strategy.eval(benchmark.test_stream)
 
-        # if args.solver_type is not None:
-        #     generator_strategy.eval(benchmark.test_stream)
+        if args.solver_type is not None:
+            generator_strategy.eval(benchmark.test_stream)
 
         print("Computing generated samples and saving them to disk")
-        pipeline = DDIMPipeline(unet=generator_model,
-                                scheduler=noise_scheduler)
         evaluate_diffusion(output_dir, n_samples, experience.current_experience,
-                           pipeline, steps=args.generation_steps, seed=args.seed, eta=args.eta)
+                           generator_model, steps=args.generation_steps, eta=args.eta)
 
     print("Evaluation completed")
 

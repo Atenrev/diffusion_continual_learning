@@ -32,13 +32,13 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--image_size", type=int, default=32)
     parser.add_argument("--channels", type=int, default=1)
 
-    parser.add_argument("--dataset", type=str, default="mnist")
+    parser.add_argument("--dataset", type=str, default="fashion_mnist")
 
     parser.add_argument("--model_config_path", type=str,
-                        default="configs/model/ddim_32.json")
-    parser.add_argument("--distillation_type", type=str, default="partial_generation",
+                        default="configs/model/ddim_medium.json")
+    parser.add_argument("--distillation_type", type=str, default="generation",
                         help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results/ddim_32_diffusion_None_mse_42",
+    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse_42/",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (mse, min_snr)")
@@ -47,14 +47,27 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--eta", type=float, default=0.0)
     parser.add_argument("--teacher_eta", type=float, default=0.0)
 
-    parser.add_argument("--num_epochs", type=int, default=500)
+    parser.add_argument("--num_epochs", type=int, default=10000)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--eval_batch_size", type=int, default=128)
 
-    parser.add_argument("--save_every", type=int, default=1,
+    parser.add_argument("--save_every", type=int, default=1000,
                         help="Save model every n iterations (only for distillation)")
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
+
+
+def create_model(config):
+    return UNet2DModel(
+        sample_size=config.model.input_size,
+        in_channels=config.model.in_channels,
+        out_channels=config.model.out_channels,
+        layers_per_block=config.model.layers_per_block,
+        block_out_channels=config.model.block_out_channels,
+        norm_num_groups=config.model.norm_num_groups,
+        down_block_types=config.model.down_block_types,
+        up_block_types=config.model.up_block_types,
+    )
 
 
 def main(args):
@@ -87,19 +100,6 @@ def main(args):
 
     model_config = get_configuration(args.model_config_path)
 
-    evaluator = GenerativeModelEvaluator(
-        device=device, save_images=20, save_path=results_folder)
-
-    model = UNet2DModel(
-        sample_size=model_config.model.input_size,
-        in_channels=model_config.model.in_channels,
-        out_channels=model_config.model.out_channels,
-        layers_per_block=model_config.model.layers_per_block,
-        block_out_channels=model_config.model.block_out_channels,
-        norm_num_groups=model_config.model.norm_num_groups,
-        down_block_types=model_config.model.down_block_types,
-        up_block_types=model_config.model.up_block_types,
-    )
     noise_scheduler = DDIMScheduler(
         num_train_timesteps=model_config.scheduler.train_timesteps)
 
@@ -127,19 +127,28 @@ def main(args):
     teacher = teacher_pipeline.unet.to(device)
 
     fid_list = []
+    time_list = []
     gen_steps = [1, 2, 5, 10, 20, 50, 100]
     for gen_step in gen_steps:
+        save_path = os.path.join(results_folder, f"gen_step_{gen_step}")
+        os.makedirs(save_path, exist_ok=True)
+        evaluator = GenerativeModelEvaluator(
+            device=device, save_images=50, save_path=save_path)
+
         print(
             f"\n\n======= Training with {gen_step} generation steps =======\n")
+        
         wrap_in_pipeline(teacher, noise_scheduler,
-                         DDIMPipeline, gen_step, args.teacher_eta, output_type="torch_raw")
-        student = deepcopy(model).to(device)
+                         DDIMPipeline, gen_step, args.teacher_eta, def_output_type="torch_raw")
+        
+        student = create_model(model_config).to(device)
         wrap_in_pipeline(student, noise_scheduler, DDIMPipeline,
                          args.generation_steps, args.eta)
+        
         optimizer = Adam(student.parameters(), lr=model_config.optimizer.lr)
 
         trainer = trainer_class(
-            student=student,
+            model=student,
             scheduler=noise_scheduler,
             optimizer=optimizer,
             criterion=criterion,
@@ -148,14 +157,23 @@ def main(args):
             eval_mb_size=args.eval_batch_size,
             device=device,
             train_timesteps=model_config.scheduler.train_timesteps,
-            evaluator=None
+            evaluator=evaluator
         )
 
-        trainer.train(teacher, eval_loader=test_dataloader,
-                      save_every=args.save_every, save_path=results_folder)
-        print(f"\n=== Evaluating with {gen_step} generation steps ===\n")
-        fid = evaluator.evaluate(student, test_dataloader, gen_step)["fid"]
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+
+        start.record()
+        fid = trainer.train(teacher, eval_loader=test_dataloader,
+                      save_every=args.save_every, save_path=save_path)
+        end.record()
+
+        torch.cuda.synchronize()
+        time_list.append(start.elapsed_time(end))
         fid_list.append(fid)
+
+        print(f"Time taken: {start.elapsed_time(end)} ms")
+        print(f"Best FID: {fid}")
 
     # Save results as json
     results = {
@@ -165,6 +183,7 @@ def main(args):
         },
         "results": {
             "fid_list": fid_list,
+            "time_list": time_list,
             "gen_steps": gen_steps
         }
     }

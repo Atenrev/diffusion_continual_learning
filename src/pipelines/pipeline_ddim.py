@@ -109,7 +109,7 @@ class DDIMPipeline(DiffusionPipeline):
         # set step values
         self.scheduler.set_timesteps(num_inference_steps, target_steps)
 
-        for t in self.progress_bar(self.scheduler.timesteps):
+        for i, t in self.progress_bar(enumerate(self.scheduler.timesteps)):
             # 1. predict noise model_output
             model_output = self.unet(image, t.to(self.device)).sample
 
@@ -119,9 +119,20 @@ class DDIMPipeline(DiffusionPipeline):
             # 2. predict previous mean of image x_t-1 and add variance depending on eta
             # eta corresponds to η in paper and should be between [0, 1]
             # do x_t -> x_t-1
-            image = self.scheduler.step(
+            new_image = self.scheduler.step(
                 model_output, t, image, eta=eta, use_clipped_model_output=use_clipped_model_output, generator=generator
             ).prev_sample.type(self.unet.dtype)
+
+            # 3. Update images with timestep different from the previous one
+            if i == 0:
+                image = new_image
+            else:
+                mask = t == self.scheduler.timesteps[i-1]
+                # Make mask broadcastable
+                if not mask.shape:
+                    mask = mask[None]
+                mask = mask.unsqueeze(1).unsqueeze(1).unsqueeze(1).to(new_image.device)
+                image = torch.where(mask, image, new_image)
 
             # if torch.isnan(image).any():
             #     print("WARNING: NaNs encountered in image.")

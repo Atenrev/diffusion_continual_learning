@@ -24,6 +24,7 @@ from src.trainers.diffusion_distillation import (
 )
 from src.trainers.generative_training import GenerativeTraining
 from src.evaluators.generative_evaluator import GenerativeModelEvaluator
+from src.trackers.wandb_tracker import WandbTracker
 
 
 def __parse_args() -> argparse.Namespace:
@@ -35,26 +36,27 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", type=str, default="fashion_mnist")
 
     parser.add_argument("--model_config_path", type=str,
-                        default="configs/model/ddim_minimal.json")
+                        default="configs/model/ddim_medium.json")
     parser.add_argument("--training_type", type=str, default="diffusion",
-                        help="Type of training to use (diffusion, generative)")
-    parser.add_argument("--distillation_type", type=str, default=None,
+                        help="Type of training to use (evaluate, diffusion, generative)")
+    parser.add_argument("--distillation_type", type=str, default="generation",
                         help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default=None, #"results/ddim_32_diffusion_None_mse_42",
+    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse_42/",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (smooth_l1, mse, min_snr)")
 
     parser.add_argument("--generation_steps", type=int, default=20)
-    parser.add_argument("--teacher_generation_steps", type=int, default=20)
+    parser.add_argument("--teacher_generation_steps", type=int, default=5)
     parser.add_argument("--eta", type=float, default=0.0)
 
-    parser.add_argument("--num_epochs", type=int, default=50)
+    parser.add_argument("--num_epochs", type=int, default=20000)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--eval_batch_size", type=int, default=128)
 
-    parser.add_argument("--save_every", type=int, default=1,
+    parser.add_argument("--save_every", type=int, default=500,
                         help="Save model every n iterations (only for distillation)")
+    parser.add_argument("--use_wandb", action="store_true", default=True)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -65,7 +67,7 @@ def main(args):
     random.seed(args.seed)
 
     model_name = args.model_config_path.split("/")[-1].split(".")[0]
-    run_name = f"{model_name}_{args.training_type}_{args.distillation_type}_{args.criterion}_{args.seed}"
+    run_name = f"{args.dataset}/{args.training_type}/{args.distillation_type}/{model_name}_{args.criterion}_{args.seed}"
     results_folder = os.path.join("results", run_name)
     os.makedirs(results_folder, exist_ok=True)
 
@@ -91,7 +93,22 @@ def main(args):
     model_config = get_configuration(args.model_config_path)
 
     evaluator = GenerativeModelEvaluator(
-        device=device, save_images=20, save_path=results_folder)
+        device=device, save_images=50, save_path=results_folder)
+        
+    all_configs = {
+        "model_config": model_config,
+        "args": vars(args)
+    }
+
+    if args.use_wandb and args.training_type != "evaluate":
+        tracker = WandbTracker(
+            configs=all_configs,
+            experiment_name=run_name.split("/")[-1],
+            project_name=f"master-thesis-{args.dataset}-{args.training_type}-{args.distillation_type}",
+            tags=[args.dataset, args.training_type, str(args.distillation_type), model_name, args.criterion],
+        )
+    else:
+        tracker = None
 
     if args.training_type == "diffusion":
         model = UNet2DModel(
@@ -114,6 +131,8 @@ def main(args):
 
         optimizer = Adam(model.parameters(), lr=model_config.optimizer.lr)
 
+        # scheduler = OneCycleLR(optimizer, args.lr, total_steps=args.epochs*len(train_dataloader), pct_start=0.25, anneal_strategy='cos')
+
         if args.criterion == "mse":
             criterion = MSELoss(noise_scheduler)
         elif args.criterion == "min_snr":
@@ -134,10 +153,11 @@ def main(args):
                 eval_mb_size=args.eval_batch_size,
                 device=device,
                 train_timesteps=model_config.scheduler.train_timesteps,
-                evaluator=evaluator
+                evaluator=evaluator,
+                tracker=tracker,
             )
             trainer.train(train_dataloader, test_dataloader,
-                          save_path=results_folder)
+                          save_path=results_folder, save_every=args.save_every)
 
         else:
             assert args.teacher_path is not None
@@ -145,7 +165,7 @@ def main(args):
             teacher_pipeline.set_progress_bar_config(disable=True)
             teacher = teacher_pipeline.unet.to(device)
             wrap_in_pipeline(teacher, noise_scheduler, DDIMPipeline,
-                             args.teacher_generation_steps, args.eta)
+                             args.teacher_generation_steps, args.eta, def_output_type="torch_raw")
 
             if args.distillation_type == "gaussian":
                 trainer_class = GaussianDistillation
@@ -159,7 +179,7 @@ def main(args):
                 raise NotImplementedError
 
             trainer = trainer_class(
-                student=model,
+                model=model,
                 scheduler=noise_scheduler,
                 optimizer=optimizer,
                 criterion=criterion,
@@ -168,11 +188,12 @@ def main(args):
                 eval_mb_size=args.eval_batch_size,
                 device=device,
                 train_timesteps=model_config.scheduler.train_timesteps,
-                evaluator=evaluator
+                evaluator=evaluator,
+                tracker=tracker,
             )
 
-            trainer.train(teacher, eval_loader=test_dataloader,
-                          save_every=args.save_every, save_path=results_folder)
+            trainer.train(teacher, test_dataloader,
+                          save_path=results_folder, save_every=args.save_every)
 
     elif args.training_type == "generative":
         model = MlpVAE(
@@ -202,6 +223,14 @@ def main(args):
         )
         trainer.train(train_dataloader, test_dataloader,
                       save_path=results_folder)
+
+    elif args.training_type == "evaluate":
+        model_pipeline = DDIMPipeline.from_pretrained(args.teacher_path)
+        model_pipeline.set_progress_bar_config(disable=True)
+        model = model_pipeline.unet.to(device)
+        wrap_in_pipeline(model, model_pipeline.scheduler, DDIMPipeline,
+                            args.teacher_generation_steps, args.eta)
+        evaluator.evaluate(model, test_dataloader, args.generation_steps)
 
     else:
         raise NotImplementedError

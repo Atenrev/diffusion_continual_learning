@@ -10,6 +10,7 @@ from diffusers import SchedulerMixin
 
 from src.evaluators.base_evaluator import BaseEvaluator
 from src.trainers.base_trainer import BaseTrainer
+from src.trackers.wandb_tracker import WandbTracker, Stage
 
 
 class DiffusionDistillation(BaseTrainer):
@@ -25,6 +26,8 @@ class DiffusionDistillation(BaseTrainer):
                  device: str,
                  train_timesteps: int,
                  evaluator: Optional[BaseEvaluator] = None,
+                 tracker: Optional[WandbTracker] = None,
+                 *args, **kwargs
                  ):
         self.model = model
         self.scheduler = scheduler
@@ -36,6 +39,7 @@ class DiffusionDistillation(BaseTrainer):
         self.device = device
         self.evaluator = evaluator
         self.train_timesteps = train_timesteps
+        self.tracker = tracker
         self.best_model = None
 
     def save(self, path):
@@ -49,11 +53,16 @@ class DiffusionDistillation(BaseTrainer):
         if self.evaluator is not None:
             assert eval_loader is not None
 
-        self.teacher = teacher
-        bar = tqdm(range(self.train_iterations), desc="Training loop", total=self.train_iterations)
-        best_fid = torch.inf
+        if self.tracker is not None:
+            self.tracker.set_stage(Stage.TRAIN)
 
-        for iteration in bar:
+        self.teacher = teacher
+        bar = tqdm(enumerate(range(self.train_iterations)), desc="Training loop", total=self.train_iterations)
+        best_fid = torch.inf
+        average_loss = 0
+        n_steps = 0
+
+        for step, iteration in bar:
             self.optimizer.zero_grad()
 
             timesteps = torch.randint(
@@ -70,6 +79,13 @@ class DiffusionDistillation(BaseTrainer):
 
             self.optimizer.step()
 
+            bar.set_postfix(loss=loss.item())
+            average_loss += loss.item()
+            n_steps += 1
+
+            if self.tracker is not None:
+                self.tracker.add_batch_metric("loss", loss.item(), step)
+
             if (iteration + 1) % save_every == 0 or iteration == self.train_iterations - 1:
                 fid = torch.inf
 
@@ -78,27 +94,34 @@ class DiffusionDistillation(BaseTrainer):
 
                 if fid <= best_fid:
                     best_fid = fid 
-                    self.best_model = self.model
+                    self.best_model = self.model # flawed lol
                     self.save(save_path)
 
-            bar.set_postfix(loss=loss.item())
+                if self.tracker is not None:
+                    self.tracker.add_epoch_metric("loss", average_loss / n_steps, step // save_every)
+                    self.tracker.set_stage(Stage.TEST)
+                    self.tracker.add_epoch_metric("fid", fid, step // save_every)
+                    self.tracker.set_stage(Stage.TRAIN)
+
+                average_loss = 0
+                n_steps = 0
+
+        if self.tracker is not None:
+            self.tracker.finish()
+
+        return best_fid
 
 
 class GaussianDistillation(DiffusionDistillation):
 
     def __init__(self,
-                    student: torch.nn.Module,
-                    scheduler: SchedulerMixin,
-                    optimizer: torch.optim.Optimizer,
-                    criterion: DiffusionLoss,
-                    train_mb_size: int,
-                    train_iterations: int,
-                    eval_mb_size: int,
-                    device: str,
-                    train_timesteps: int,
-                    evaluator: Optional[BaseEvaluator] = None,
-                    ):
-        super().__init__(student, scheduler, optimizer, criterion, train_mb_size, train_iterations, eval_mb_size, device, train_timesteps, evaluator)
+                generation_steps: int = 20,
+                eta: float = 0.0,
+                *args, **kwargs
+                ):
+        super().__init__(*args, **kwargs)
+        self.generation_steps = generation_steps
+        self.eta = eta
 
     def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         channels = self.model.config.in_channels
@@ -114,20 +137,11 @@ class GaussianDistillation(DiffusionDistillation):
 class GenerationDistillation(DiffusionDistillation):
 
     def __init__(self,
-                    student: torch.nn.Module,
-                    scheduler: SchedulerMixin,
-                    optimizer: torch.optim.Optimizer,
-                    criterion: DiffusionLoss,
-                    train_mb_size: int,
-                    train_iterations: int,
-                    eval_mb_size: int,
-                    device: str,
-                    train_timesteps: int,
-                    evaluator: Optional[BaseEvaluator] = None,
-                    generation_steps: int = 20,
-                    eta: float = 0.0,
-                    ):
-        super().__init__(student, scheduler, optimizer, criterion, train_mb_size, train_iterations, eval_mb_size, device, train_timesteps, evaluator)
+                generation_steps: int = 20,
+                eta: float = 0.0,
+                *args, **kwargs
+                ):
+        super().__init__(*args, **kwargs)
         self.generation_steps = generation_steps
         self.eta = eta
 
@@ -147,20 +161,11 @@ class GenerationDistillation(DiffusionDistillation):
 class PartialGenerationDistillation(DiffusionDistillation):
 
     def __init__(self,
-                    student: torch.nn.Module,
-                    scheduler: SchedulerMixin,
-                    optimizer: torch.optim.Optimizer,
-                    criterion: DiffusionLoss,
-                    train_mb_size: int,
-                    train_iterations: int,
-                    eval_mb_size: int,
-                    device: str,
-                    train_timesteps: int,
-                    evaluator: Optional[BaseEvaluator] = None,
-                    generation_steps: int = 20,
-                    eta: float = 0.0,
-                    ):
-        super().__init__(student, scheduler, optimizer, criterion, train_mb_size, train_iterations, eval_mb_size, device, train_timesteps, evaluator)
+                generation_steps: int = 20,
+                eta: float = 0.0,
+                *args, **kwargs
+                ):
+        super().__init__(*args, **kwargs)
         self.generation_steps = generation_steps
         self.eta = eta
 
@@ -174,20 +179,11 @@ class PartialGenerationDistillation(DiffusionDistillation):
 class NoDistillation(DiffusionDistillation):
     
         def __init__(self,
-                        student: torch.nn.Module,
-                        scheduler: SchedulerMixin,
-                        optimizer: torch.optim.Optimizer,
-                        criterion: DiffusionLoss,
-                        train_mb_size: int,
-                        train_iterations: int,
-                        eval_mb_size: int,
-                        device: str,
-                        train_timesteps: int,
-                        evaluator: Optional[BaseEvaluator] = None,
-                        generation_steps: int = 20,
-                        eta: float = 0.0,
-                        ):
-            super().__init__(student, scheduler, optimizer, criterion, train_mb_size, train_iterations, eval_mb_size, device, train_timesteps, evaluator)
+                    generation_steps: int = 20,
+                    eta: float = 0.0,
+                    *args, **kwargs
+                    ):
+            super().__init__(*args, **kwargs)
             self.generation_steps = generation_steps
             self.eta = eta
     
