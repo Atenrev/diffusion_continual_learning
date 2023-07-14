@@ -1,7 +1,7 @@
 {
     "train_batch_size": 128,
     "eval_batch_size": 256,
-    "epochs": 20,
+    "epochs": 1,
     "increasing_replay_size": false,
     "replay_size": null
 }

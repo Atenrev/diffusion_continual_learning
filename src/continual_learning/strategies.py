@@ -20,7 +20,7 @@ from avalanche.logging import InteractiveLogger
 from diffusers import SchedulerMixin
 
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin, TrainGeneratorAfterExpPlugin
-from src.continual_learning.metrics import TrainedExperienceFIDMetric
+from src.continual_learning.metrics.fid import TrainedExperienceFIDMetric
 
 
 class WeightedSoftGenerativeReplay(SupervisedTemplate):
@@ -178,7 +178,7 @@ def get_default_generator_logger():
     )
 
 
-class DiffusionTraining(SupervisedTemplate):
+class BaseDiffusionTraining(SupervisedTemplate):
     """
     Difussion Training class.
 
@@ -201,7 +201,8 @@ class DiffusionTraining(SupervisedTemplate):
         train_timesteps: int = 1000,
         replay_start_timestep: int = 0,
         generation_timesteps: int = 10,
-        lambd: float = 5,
+        lambd: float = 1,
+        weight_replay_loss: bool = True,
         **base_kwargs
     ):
         """
@@ -249,6 +250,7 @@ class DiffusionTraining(SupervisedTemplate):
         self.train_exp_id = 0
         self.replay_start_timestep = replay_start_timestep
         self.lambd = lambd
+        self.weight_replay_loss = weight_replay_loss
 
     def _extract_into_tensor(self, arr, timesteps, broadcast_shape):
         """
@@ -281,34 +283,17 @@ class DiffusionTraining(SupervisedTemplate):
         Compute the loss for the current minibatch.
         """
         if self.experience.current_experience == 0 or not self.model.training:
-            return self._criterion(self.noise_x, self.mb_output)
+            return self._criterion(self.noise_x, self.mb_output), torch.zeros(1).to(self.device)
 
         start_of_replay = self.mb_x.shape[0] // 2 
         
         real_data_loss = self._criterion(self.noise_x[:start_of_replay], self.mb_output[:start_of_replay])
         replay_data_loss = self._criterion(self.noise_x[start_of_replay:], self.mb_output[start_of_replay:]) * self.lambd
-        # output = self.model(self.mb_x[start_of_replay:], self.timesteps[start_of_replay:], return_dict=False)[0]
-        # replay_data_loss = self._criterion(self.noise_x[start_of_replay:], output) * 10
-        return ((1/(self.experience.current_experience+1)) * real_data_loss
-                + (1 - (1/(self.experience.current_experience+1))) * replay_data_loss)
+        
+        return real_data_loss, replay_data_loss
     
     def forward(self):
-        batch_size = self.mbatch[0].shape[0]
-        noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, self.timesteps)
-
-        if not self.untrained_generator:
-            assert self.old_model is not None
-            noise_replay = torch.randn(self.mbatch[0].shape).to(self.device)
-            # Below timestep 50, the loss impact is minimal. Ref: TODO
-            timesteps_replay = torch.randint(
-                self.replay_start_timestep, self.scheduler.config.num_train_timesteps, (batch_size,), device=self.device
-            ).long()
-            noise_prediction = self.old_model(noise_replay, timesteps_replay, return_dict=False)[0]
-            noisy_images = torch.cat([noisy_images, noise_replay], dim=0)
-            self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
-            self.timesteps = torch.cat([self.timesteps, timesteps_replay], dim=0)
-
-        return self.model(noisy_images, self.timesteps, return_dict=False)[0]
+        raise NotImplementedError
     
     def training_epoch(self, **kwargs):
         """
@@ -341,7 +326,13 @@ class DiffusionTraining(SupervisedTemplate):
             self._after_forward(**kwargs)
 
             # Loss & Backward
-            self.loss += self.criterion()
+            self.data_loss, self.replay_loss = self.criterion()
+            replay_weight = 1 - (1/(self.experience.current_experience+1))
+            
+            if self.weight_replay_loss:
+                self.loss += (1 - replay_weight) * self.data_loss + replay_weight * self.replay_loss
+            else:
+                self.loss += self.data_loss + self.replay_loss
 
             self._before_backward(**kwargs)
             self.backward()
@@ -426,6 +417,64 @@ class DiffusionTraining(SupervisedTemplate):
 
         # restore previous shared state.
         self._load_train_state(prev_train_state)
+
+
+class GaussianDistillationDiffusionTraining(BaseDiffusionTraining):
+    def __init__(self,
+                *args, **kwargs
+                ):
+        super().__init__(*args, **kwargs)
+
+    def forward(self):
+        batch_size = self.mbatch[0].shape[0]
+        noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, self.timesteps)
+
+        if not self.untrained_generator:
+            assert self.old_model is not None
+            noise_replay = torch.randn(self.mbatch[0].shape).to(self.device)
+            # # Below timestep 50, the loss impact is minimal. Ref: TODO
+            timesteps_replay = torch.randint(
+                self.replay_start_timestep, self.scheduler.config.num_train_timesteps, (batch_size,), device=self.device
+            ).long()
+            with torch.no_grad():
+                noise_prediction = self.old_model(noise_replay, timesteps_replay, return_dict=False)[0]
+            noisy_images = torch.cat([noisy_images, noise_replay], dim=0)
+            self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
+            self.timesteps = torch.cat([self.timesteps, timesteps_replay], dim=0)
+
+        return self.model(noisy_images, self.timesteps, return_dict=False)[0]
+    
+
+class LwFDistillationDiffusionTraining(BaseDiffusionTraining):
+    def __init__(self,
+                *args, **kwargs
+                ):
+        super().__init__(*args, **kwargs)
+
+    def criterion(self):
+        """
+        Compute the loss for the current minibatch.
+        """
+        if self.experience.current_experience == 0 or not self.model.training:
+            return self._criterion(self.noise_x, self.mb_output), torch.zeros(1).to(self.device)
+
+        start_of_replay = self.mb_x.shape[0]
+        
+        real_data_loss = self._criterion(self.noise_x[:start_of_replay], self.mb_output)
+        replay_data_loss = self._criterion(self.noise_x[start_of_replay:], self.mb_output) * self.lambd
+        
+        return real_data_loss, replay_data_loss
+
+    def forward(self):
+        noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, self.timesteps)
+
+        if not self.untrained_generator:
+            assert self.old_model is not None
+            with torch.no_grad():
+                noise_prediction = self.old_model(noisy_images, self.timesteps, return_dict=False)[0]
+            self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
+
+        return self.model(noisy_images, self.timesteps, return_dict=False)[0]
         
 
 class VAETraining(SupervisedTemplate):

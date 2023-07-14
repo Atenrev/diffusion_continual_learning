@@ -20,15 +20,13 @@ def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int,
     """
     assert def_output_type in ["torch", "torch_raw", "pil"], f"Invalid output type {def_output_type}"
     
-    def generate(batch_size: int, target_steps: Union[List[int], int] = num_inference_steps, output_type: str = def_output_type, seed: Optional[int] = None) -> torch.Tensor:
-        if seed is None:
-            seed = torch.randint(0, 100000, (1,)).item()
-            
+    def generate(batch_size: int, target_steps: Union[List[int], int] = num_inference_steps, output_type: str = def_output_type, seed: Optional[int] = None) -> torch.Tensor:   
+        generator = torch.manual_seed(seed) if seed is not None else None         
         pipeline = pipeline_class(unet=model, scheduler=scheduler)
         pipeline.set_progress_bar_config(disable=True)
         samples = pipeline(
             batch_size, 
-            generator=torch.manual_seed(seed),
+            generator=generator,
             num_inference_steps=num_inference_steps,
             eta=eta,
             output_type=output_type, 
@@ -48,6 +46,7 @@ def make_grid(images, rows, cols):
 
 
 def evaluate_diffusion(output_dir, eval_batch_size, epoch, generator, steps: int = 10, seed: Optional[int] = None, eta: float = 1.0):
+    os.makedirs(output_dir, exist_ok=True)
     images = generator.generate(eval_batch_size, output_type="pil", seed=seed)[0]
     image_grid = make_grid(images, rows=10, cols=10)
 

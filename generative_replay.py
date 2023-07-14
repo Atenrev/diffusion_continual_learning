@@ -13,15 +13,15 @@ from avalanche.models import SimpleMLP
 from avalanche.evaluation.metrics import (
     forgetting_metrics,
     accuracy_metrics,
-    loss_metrics,
     confusion_matrix_metrics,
 )
 from avalanche.logging import InteractiveLogger, WandBLogger
 from avalanche.training.plugins import EvaluationPlugin
 
-from src.continual_learning.strategies import WeightedSoftGenerativeReplay, DiffusionTraining, VAETraining
+from src.continual_learning.strategies import WeightedSoftGenerativeReplay, BaseDiffusionTraining, VAETraining
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
-from src.continual_learning.metrics import TrainedExperienceFIDMetric
+from src.continual_learning.metrics.fid import TrainedExperienceFIDMetric
+from src.continual_learning.metrics.loss import loss_metrics, replay_loss_metrics, data_loss_metrics
 from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline, evaluate_diffusion
@@ -42,7 +42,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=int, default=0.0)
     
-    parser.add_argument("--solver_type", type=str, default="cnn")
+    parser.add_argument("--solver_type", type=str, default=None)#"cnn")
     parser.add_argument("--solver_config_path", type=str,
                         default="configs/model/cnn.json")
     parser.add_argument("--solver_strategy_config_path", type=str,
@@ -84,12 +84,28 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
             loss_metrics(
                 minibatch=True,
                 epoch=True,
-                epoch_running=True
+                epoch_running=True,
+                experience=True,
+                stream=True,
+            ),
+            replay_loss_metrics(
+                minibatch=True,
+                epoch=True,
+                epoch_running=True,
+                experience=True,
+                stream=True,
+            ),
+            data_loss_metrics(
+                minibatch=True,
+                epoch=True,
+                epoch_running=True,
+                experience=True,
+                stream=True,
             ),
             TrainedExperienceFIDMetric(),
             loggers=loggers,
         )
-        generator_strategy = DiffusionTraining(
+        generator_strategy = BaseDiffusionTraining(
             generator_model,
             noise_scheduler,
             torch.optim.Adam(generator_model.parameters(),
@@ -212,8 +228,6 @@ def main(args):
     run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
     output_dir = os.path.join(args.output_dir, args.dataset, run_name)
-    output_dir = os.path.join(
-        output_dir, "debug" if args.debug else "real", run_name)
     os.makedirs(output_dir, exist_ok=True)
 
     # --- BENCHMARK CREATION
@@ -246,9 +260,11 @@ def main(args):
             f"Dataset {args.dataset} not implemented")
 
     # --- LOGGER CREATION
-    loggers = [InteractiveLogger()]
+    loggers = []
     
-    if not args.debug:
+    if args.debug:
+        loggers.append(InteractiveLogger())
+    else:
         all_configs = {
             "args": vars(args),
             "generator_config": generator_config,
@@ -303,7 +319,7 @@ def main(args):
 
         print("Computing generated samples and saving them to disk")
         evaluate_diffusion(output_dir, n_samples, experience.current_experience,
-                           generator_model, steps=args.generation_steps, eta=args.eta)
+                           generator_strategy.model, steps=args.generation_steps, eta=args.eta, seed=args.seed)
 
     print("Evaluation completed")
 
