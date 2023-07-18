@@ -152,7 +152,8 @@ class GenerationDistillation(DiffusionDistillation):
 
         generated_images = self.teacher.generate(self.train_mb_size)
         noisy_images = self.scheduler.add_noise(generated_images, noise, timesteps)
-        target = self.teacher(noisy_images, timesteps, return_dict=False)[0]
+        with torch.no_grad():
+            target = self.teacher(noisy_images, timesteps, return_dict=False)[0]
         student_pred = self.model(noisy_images, timesteps, return_dict=False)[0]
 
         return student_pred, target
@@ -171,7 +172,8 @@ class PartialGenerationDistillation(DiffusionDistillation):
 
     def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         generated_images = self.teacher.generate(self.train_mb_size, timesteps)
-        target = self.teacher(generated_images, timesteps, return_dict=False)[0]
+        with torch.no_grad():
+            target = self.teacher(generated_images, timesteps, return_dict=False)[0]
         student_pred = self.model(generated_images, timesteps, return_dict=False)[0]
         return student_pred, target
     

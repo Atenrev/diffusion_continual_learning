@@ -18,7 +18,13 @@ from avalanche.evaluation.metrics import (
 from avalanche.logging import InteractiveLogger, WandBLogger
 from avalanche.training.plugins import EvaluationPlugin
 
-from src.continual_learning.strategies import WeightedSoftGenerativeReplay, BaseDiffusionTraining, VAETraining
+from src.continual_learning.strategies import (
+    WeightedSoftGenerativeReplay, 
+    GaussianDistillationDiffusionTraining, 
+    LwFDistillationDiffusionTraining,
+    FullGenerationDistillationDiffusionTraining,
+    VAETraining
+)
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
 from src.continual_learning.metrics.fid import TrainedExperienceFIDMetric
 from src.continual_learning.metrics.loss import loss_metrics, replay_loss_metrics, data_loss_metrics
@@ -37,12 +43,12 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--generator_config_path", type=str,
                         default="configs/model/ddim_medium.json")
     parser.add_argument("--generator_strategy_config_path",
-                        type=str, default="configs/strategy/diffusion.json")
+                        type=str, default="configs/strategy/diffusion_full_gen_distill.json")
     
     parser.add_argument("--generation_steps", type=int, default=20)
-    parser.add_argument("--eta", type=int, default=0.0)
+    parser.add_argument("--eta", type=float, default=0.0)
     
-    parser.add_argument("--solver_type", type=str, default=None)#"cnn")
+    parser.add_argument("--solver_type", type=str, default="cnn")
     parser.add_argument("--solver_config_path", type=str,
                         default="configs/model/cnn.json")
     parser.add_argument("--solver_strategy_config_path", type=str,
@@ -105,18 +111,61 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
             TrainedExperienceFIDMetric(),
             loggers=loggers,
         )
-        generator_strategy = BaseDiffusionTraining(
-            generator_model,
-            noise_scheduler,
-            torch.optim.Adam(generator_model.parameters(),
-                             lr=model_config.optimizer.lr),
-            train_mb_size=strategy_config.train_batch_size,
-            train_epochs=strategy_config.epochs,
-            eval_mb_size=strategy_config.eval_batch_size,
-            device=device,
-            evaluator=gen_eval_plugin,
-            train_timesteps=model_config.scheduler.train_timesteps,
-        )
+
+        if strategy_config.strategy == "full_generation_distillation":
+            generator_strategy = FullGenerationDistillationDiffusionTraining(
+                strategy_config.teacher_steps,
+                strategy_config.teacher_eta,
+                model=generator_model,
+                scheduler=noise_scheduler,
+                optimizer=torch.optim.Adam(generator_model.parameters(),
+                                lr=model_config.optimizer.lr),
+                train_mb_size=strategy_config.train_batch_size,
+                train_epochs=strategy_config.epochs,
+                eval_mb_size=strategy_config.eval_batch_size,
+                device=device,
+                evaluator=gen_eval_plugin,
+                train_timesteps=model_config.scheduler.train_timesteps,
+                lambd=strategy_config.lambd,
+                replay_start_timestep=strategy_config.replay_start_timestep,
+                weight_replay_loss=strategy_config.weight_replay_loss,
+            )
+        elif strategy_config.strategy == "gaussian_distillation":
+            generator_strategy = GaussianDistillationDiffusionTraining(
+                generator_model,
+                noise_scheduler,
+                torch.optim.Adam(generator_model.parameters(),
+                                lr=model_config.optimizer.lr),
+                train_mb_size=strategy_config.train_batch_size,
+                train_epochs=strategy_config.epochs,
+                eval_mb_size=strategy_config.eval_batch_size,
+                device=device,
+                evaluator=gen_eval_plugin,
+                train_timesteps=model_config.scheduler.train_timesteps,
+                lambd=strategy_config.lambd,
+                replay_start_timestep=strategy_config.replay_start_timestep,
+                weight_replay_loss=strategy_config.weight_replay_loss,
+            )
+        elif strategy_config.strategy == "lwf_distillation":
+            generator_strategy = LwFDistillationDiffusionTraining(
+                generator_model,
+                noise_scheduler,
+                torch.optim.Adam(generator_model.parameters(),
+                                lr=model_config.optimizer.lr),
+                train_mb_size=strategy_config.train_batch_size,
+                train_epochs=strategy_config.epochs,
+                eval_mb_size=strategy_config.eval_batch_size,
+                device=device,
+                evaluator=gen_eval_plugin,
+                train_timesteps=model_config.scheduler.train_timesteps,
+                lambd=strategy_config.lambd,
+                replay_start_timestep=strategy_config.replay_start_timestep,
+                weight_replay_loss=strategy_config.weight_replay_loss,
+            )
+        else:
+            raise NotImplementedError(
+                f"Strategy {strategy_config.strategy} not implemented")
+
     elif generator_type == "vae":
         generator = MlpVAE(
             (model_config.model.channels, model_config.model.input_size,
@@ -224,14 +273,15 @@ def main(args):
         else "cpu"
     )
 
-    run_name = f"generative_replay_{args.generator_type}_{args.solver_type}"
+    generator_config = get_configuration(args.generator_config_path)
+    generator_strategy_config = get_configuration(args.generator_strategy_config_path)
+    run_name = f"generative_replay_{args.generator_type}_{generator_strategy_config.strategy}_{args.solver_type}"
     run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
     output_dir = os.path.join(args.output_dir, args.dataset, run_name)
     os.makedirs(output_dir, exist_ok=True)
 
     # --- BENCHMARK CREATION
-    generator_config = get_configuration(args.generator_config_path)
     image_size = generator_config.model.input_size
     train_transform = transforms.Compose(
         [
@@ -262,34 +312,33 @@ def main(args):
     # --- LOGGER CREATION
     loggers = []
     
-    if args.debug:
-        loggers.append(InteractiveLogger())
-    else:
-        all_configs = {
-            "args": vars(args),
-            "generator_config": generator_config,
-            "generator_strategy_config": get_configuration(args.generator_strategy_config_path),
-        }
-        if args.solver_type is not None:
-            all_configs["solver_config"] = get_configuration(args.solver_config_path)
-            all_configs["solver_strategy_config"] = get_configuration(args.solver_strategy_config_path)
-        loggers.append(WandBLogger(
-            project_name=args.project_name,
-            run_name=run_name,
-            config=all_configs,
-        ))
+    # if args.debug:
+    loggers.append(InteractiveLogger())
+    # else:
+    all_configs = {
+        "args": vars(args),
+        "generator_config": generator_config,
+        "generator_strategy_config": generator_strategy_config,
+    }
+    if args.solver_type is not None:
+        all_configs["solver_config"] = get_configuration(args.solver_config_path)
+        all_configs["solver_strategy_config"] = get_configuration(args.solver_strategy_config_path)
+    loggers.append(WandBLogger(
+        project_name=args.project_name,
+        run_name=run_name,
+        config=all_configs,
+    ))
 
     # --- STRATEGY CREATION
     generator_strategy = get_generator_strategy(
         args.generator_type,
-        get_configuration(args.generator_config_path),
-        get_configuration(args.generator_strategy_config_path),
+        generator_config,
+        generator_strategy_config,
         loggers,
         device,
-        args.generation_steps,
-        args.eta,
+        generation_steps=args.generation_steps,
+        eta=args.eta,
     )
-    generator_model = generator_strategy.model
 
     if args.solver_type is None:
         cl_strategy = generator_strategy
@@ -311,15 +360,20 @@ def main(args):
         cl_strategy.train(experience)
         print("Training completed")
 
+        if args.solver_type is not None:
+            print("Computing FID on the whole test set")
+            generator_strategy.eval(benchmark.test_stream)
+
         print("Computing accuracy on the whole test set")
         cl_strategy.eval(benchmark.test_stream)
 
-        if args.solver_type is not None:
-            generator_strategy.eval(benchmark.test_stream)
-
         print("Computing generated samples and saving them to disk")
         evaluate_diffusion(output_dir, n_samples, experience.current_experience,
-                           generator_strategy.model, steps=args.generation_steps, eta=args.eta, seed=args.seed)
+                           generator_strategy.model, seed=args.seed, generation_steps=args.generation_steps, eta=args.eta)
+        
+        # if experience.current_experience > 0:
+        #     evaluate_diffusion(output_dir + "/old", n_samples, experience.current_experience,
+        #                        generator_strategy.old_model, seed=args.seed, generation_steps=args.generation_steps, eta=args.eta)
 
     print("Evaluation completed")
 

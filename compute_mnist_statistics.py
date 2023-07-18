@@ -9,16 +9,16 @@ from src.models.simple_cnn import SimpleCNN
 from torchvision import transforms
 
 from src.common.utils import get_configuration
-from src.datasets.mnist import create_dataloader
+from src.datasets.fashion_mnist import create_dataloader
 from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.common.visual import plot_bar
 
 
 preprocess = transforms.Compose(
         [
-            transforms.Resize((28, 28)),
+            transforms.Resize((32, 32)),
             transforms.ToTensor(),
-            # transforms.Normalize([0.5], [0.5]),
+            transforms.Normalize([0.5], [0.5]),
         ]
     )
 
@@ -29,15 +29,15 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--model_config_path", type=str,
                         default="configs/model/cnn.json")
     parser.add_argument("--weights_path", type=str,
-                        default="results/cnn_mnist/")
+                        default="results/cnn_fmnist/")
     parser.add_argument("--generator_path", type=str,
-                        default="results/ddim_32_diffusion_None_mse_42/")
+                        default="results/fashion_mnist/diffusion/generation/ddim_medium_mse_42")
 
     parser.add_argument("--classifier_batch_size", type=int, default=256)
     parser.add_argument("--generator_batch_size", type=int, default=128)
 
-    parser.add_argument("--n_samples", type=int, default=60000)
-    parser.add_argument("--n_steps", type=int, default=2)
+    parser.add_argument("--n_samples", type=int, default=10000)
+    parser.add_argument("--n_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
     parser.add_argument("--device", type=str, default="cuda")
 
@@ -131,15 +131,16 @@ def main(args):
             args.generator_batch_size,
             num_inference_steps=args.n_steps,
             eta=args.eta,
-            output_type="torch",
+            output_type="torch_raw",
         )
 
         # Resize to 28x28
-        generated_samples = torch.nn.functional.interpolate(
-            generated_samples, size=(28, 28), mode="bilinear", align_corners=False
-        )
+        # generated_samples = torch.nn.functional.interpolate(
+        #     generated_samples, size=(28, 28), mode="bilinear", align_corners=False
+        # )
 
-        classes = classifier(generated_samples)
+        with torch.no_grad():
+            classes = classifier(generated_samples)
         classes = torch.argmax(classes, dim=1)
         classes_np = classes.cpu().numpy()
 

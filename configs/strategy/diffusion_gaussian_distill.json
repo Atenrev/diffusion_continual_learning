@@ -1,0 +1,11 @@
+{
+    "strategy": "gaussian_distillation",
+    "train_batch_size": 128,
+    "eval_batch_size": 128,
+    "epochs": 100,
+    "increasing_replay_size": false,
+    "replay_size": null,
+    "lambd": 1.0,
+    "replay_start_timestep": 0,
+    "weight_replay_loss": true
+}
