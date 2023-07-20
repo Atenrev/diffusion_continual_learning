@@ -15,7 +15,7 @@ from avalanche.evaluation.metrics import (
     accuracy_metrics,
     confusion_matrix_metrics,
 )
-from avalanche.logging import InteractiveLogger, WandBLogger
+from avalanche.logging import WandBLogger
 from avalanche.training.plugins import EvaluationPlugin
 
 from src.continual_learning.strategies import (
@@ -28,6 +28,7 @@ from src.continual_learning.strategies import (
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
 from src.continual_learning.metrics.fid import TrainedExperienceFIDMetric
 from src.continual_learning.metrics.loss import loss_metrics, replay_loss_metrics, data_loss_metrics
+from src.continual_learning.loggers import TextLogger, CSVLogger
 from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline, evaluate_diffusion
@@ -43,7 +44,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--generator_config_path", type=str,
                         default="configs/model/ddim_medium.json")
     parser.add_argument("--generator_strategy_config_path",
-                        type=str, default="configs/strategy/diffusion_full_gen_distill.json")
+                        type=str, default="configs/strategy/diffusion_lwf_distill.json")
     
     parser.add_argument("--generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
@@ -64,7 +65,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--output_dir", type=str,
                         default="results/generative_replay/")
     parser.add_argument("--project_name", type=str, default="master-thesis-genreplay")
-    parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument("--debug", action="store_true", default=True)
     return parser.parse_args()
 
 
@@ -240,9 +241,9 @@ def get_solver_strategy(solver_type: str, model_config, strategy_config, generat
         #     stream=True,
         # ),
         forgetting_metrics(experience=True, stream=True),
-        confusion_matrix_metrics(
-            stream=True, wandb=True, class_names=[str(i) for i in range(10)]
-        ),
+        # confusion_matrix_metrics(
+        #     stream=True, wandb=True, class_names=[str(i) for i in range(10)]
+        # ),
         loggers=loggers,
     )
 
@@ -266,6 +267,10 @@ def get_solver_strategy(solver_type: str, model_config, strategy_config, generat
 
 
 def main(args):
+    # --- SEEDING
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+
     # --- CONFIG
     device = torch.device(
         f"cuda:{args.cuda}"
@@ -279,7 +284,10 @@ def main(args):
     run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
     output_dir = os.path.join(args.output_dir, args.dataset, run_name)
+    log_dir = os.path.join(output_dir, "logs")
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "log.txt")
 
     # --- BENCHMARK CREATION
     image_size = generator_config.model.input_size
@@ -312,22 +320,23 @@ def main(args):
     # --- LOGGER CREATION
     loggers = []
     
-    # if args.debug:
-    loggers.append(InteractiveLogger())
-    # else:
-    all_configs = {
-        "args": vars(args),
-        "generator_config": generator_config,
-        "generator_strategy_config": generator_strategy_config,
-    }
-    if args.solver_type is not None:
-        all_configs["solver_config"] = get_configuration(args.solver_config_path)
-        all_configs["solver_strategy_config"] = get_configuration(args.solver_strategy_config_path)
-    loggers.append(WandBLogger(
-        project_name=args.project_name,
-        run_name=run_name,
-        config=all_configs,
-    ))
+    loggers.append(TextLogger(open(log_file, "a")))
+    loggers.append(CSVLogger(log_dir))
+
+    if not args.debug:
+        all_configs = {
+            "args": vars(args),
+            "generator_config": generator_config,
+            "generator_strategy_config": generator_strategy_config,
+        }
+        if args.solver_type is not None:
+            all_configs["solver_config"] = get_configuration(args.solver_config_path)
+            all_configs["solver_strategy_config"] = get_configuration(args.solver_strategy_config_path)
+        loggers.append(WandBLogger(
+            project_name=args.project_name,
+            run_name=run_name,
+            config=all_configs,
+        ))
 
     # --- STRATEGY CREATION
     generator_strategy = get_generator_strategy(
@@ -360,12 +369,12 @@ def main(args):
         cl_strategy.train(experience)
         print("Training completed")
 
+        print("Computing accuracy on the whole test set")
+        cl_strategy.eval(benchmark.test_stream)
+
         if args.solver_type is not None:
             print("Computing FID on the whole test set")
             generator_strategy.eval(benchmark.test_stream)
-
-        print("Computing accuracy on the whole test set")
-        cl_strategy.eval(benchmark.test_stream)
 
         print("Computing generated samples and saving them to disk")
         evaluate_diffusion(output_dir, n_samples, experience.current_experience,

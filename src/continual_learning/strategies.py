@@ -19,10 +19,8 @@ from avalanche.training.templates import SupervisedTemplate
 from avalanche.logging import InteractiveLogger
 from diffusers import SchedulerMixin
 
-from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin, TrainGeneratorAfterExpPlugin
 from src.continual_learning.metrics.fid import TrainedExperienceFIDMetric
-from src.common.diffusion_utils import wrap_in_pipeline
 
 
 class WeightedSoftGenerativeReplay(SupervisedTemplate):

@@ -5,9 +5,10 @@ import numpy as np
 
 from tqdm import tqdm
 from typing import Any
-from src.models.simple_cnn import SimpleCNN
 from torchvision import transforms
+from torchvision.models import resnet18
 
+# from src.models.simple_cnn import SimpleCNN
 from src.common.utils import get_configuration
 from src.datasets.fashion_mnist import create_dataloader
 from src.pipelines.pipeline_ddim import DDIMPipeline
@@ -16,9 +17,11 @@ from src.common.visual import plot_bar
 
 preprocess = transforms.Compose(
         [
-            transforms.Resize((32, 32)),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
+            transforms.Resize((32, 32)),
+            # Repeat channels to fit ResNet18
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
         ]
     )
 
@@ -27,7 +30,7 @@ def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--model_config_path", type=str,
-                        default="configs/model/cnn.json")
+                        default="configs/model/resnet.json")
     parser.add_argument("--weights_path", type=str,
                         default="results/cnn_fmnist/")
     parser.add_argument("--generator_path", type=str,
@@ -36,7 +39,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--classifier_batch_size", type=int, default=256)
     parser.add_argument("--generator_batch_size", type=int, default=128)
 
-    parser.add_argument("--n_samples", type=int, default=10000)
+    parser.add_argument("--n_samples", type=int, default=60000)
     parser.add_argument("--n_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
     parser.add_argument("--device", type=str, default="cuda")
@@ -45,10 +48,11 @@ def __parse_args() -> argparse.Namespace:
 
 
 def load_or_train_mnist_classifier(model_config: Any, device: str, weights_path: str, batch_size: int = 256):
-    model = SimpleCNN(
-        n_channels=model_config.model.channels,
-        num_classes=model_config.model.n_classes
-    )
+    # model = SimpleCNN(
+    #     n_channels=model_config.model.channels,
+    #     num_classes=model_config.model.n_classes
+    # )
+    model = resnet18(num_classes=10)
 
     if os.path.exists(os.path.join(weights_path, "model.pt")):
         print("Loading model from disk")
@@ -107,10 +111,11 @@ def main(args):
         model_config, args.device, args.weights_path, args.classifier_batch_size)
     classifier.eval()
 
-    evaluator_classifier = SimpleCNN(
-        n_channels=model_config.model.channels,
-        num_classes=model_config.model.n_classes
-    ).to(device)
+    # evaluator_classifier = SimpleCNN(
+    #     n_channels=model_config.model.channels,
+    #     num_classes=model_config.model.n_classes
+    # ).to(device)
+    evaluator_classifier = resnet18(num_classes=10).to(device)
     evaluator_optimizer = torch.optim.Adam(
         evaluator_classifier.parameters(),
         lr=model_config.optimizer.lr,
@@ -133,6 +138,9 @@ def main(args):
             eta=args.eta,
             output_type="torch_raw",
         )
+
+        # Repeat channels to fit ResNet18
+        generated_samples = generated_samples.repeat(1, 3, 1, 1)
 
         # Resize to 28x28
         # generated_samples = torch.nn.functional.interpolate(
@@ -168,6 +176,18 @@ def main(args):
                     accuracy_list.append(accuracy.item())
             print(f"Accuracy: {sum(accuracy_list) / len(accuracy_list)}")
             evaluator_classifier.train()
+
+    print("Evaluating model")
+    evaluator_classifier.eval()
+    accuracy_list = []
+    for batch in test_loader:
+        with torch.no_grad():
+            batch_data = batch["pixel_values"].to(device)
+            batch_labels = batch["label"].to(device)
+            pred = evaluator_classifier(batch_data)
+            accuracy = (pred.argmax(dim=1) == batch_labels).float().mean()
+            accuracy_list.append(accuracy.item())
+    print(f"Accuracy: {sum(accuracy_list) / len(accuracy_list)}")
 
     # Extract class names and sample counts
     class_names = list(samples_per_class.keys())

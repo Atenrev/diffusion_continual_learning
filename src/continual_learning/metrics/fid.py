@@ -84,7 +84,9 @@ class TrainedExperienceFIDMetric(PluginMetric[float]):
         self.fid_metric.update(strategy.mb_output, strategy.mb_x)
 
     def _package_result(self, strategy):
-        """Taken from `GenericPluginMetric`, check that class out!"""
+        """
+        Package the result for logging
+        """
         metric_value = self.fid_metric.result()
         add_exp = False
         plot_x_position = strategy.clock.train_iterations
@@ -108,7 +110,4 @@ class TrainedExperienceFIDMetric(PluginMetric[float]):
         return self._package_result(strategy)
     
     def __str__(self):
-        """
-        Here you can specify the name of your metric
-        """
-        return "FID_TrainedExperience"
+        return "FID_TrainedExperience" 
