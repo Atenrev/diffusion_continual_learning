@@ -65,7 +65,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--output_dir", type=str,
                         default="results/generative_replay/")
     parser.add_argument("--project_name", type=str, default="master-thesis-genreplay")
-    parser.add_argument("--debug", action="store_true", default=True)
+    parser.add_argument("--debug", action="store_true", default=False)
     return parser.parse_args()
 
 

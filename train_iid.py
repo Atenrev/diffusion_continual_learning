@@ -3,6 +3,7 @@ import argparse
 import torch
 import numpy as np
 import random
+import pandas as pd
 
 from torch.optim import Adam
 from torchvision import transforms
@@ -18,6 +19,7 @@ from src.losses.diffusion_losses import MSELoss, MinSNRLoss, SmoothL1Loss
 from src.trainers.diffusion_training import DiffusionTraining
 from src.trainers.diffusion_distillation import (
     GaussianDistillation,
+    GaussianSymmetryDistillation,
     PartialGenerationDistillation,
     GenerationDistillation,
     NoDistillation
@@ -25,6 +27,7 @@ from src.trainers.diffusion_distillation import (
 from src.trainers.generative_training import GenerativeTraining
 from src.evaluators.generative_evaluator import GenerativeModelEvaluator
 from src.trackers.wandb_tracker import WandbTracker
+from src.trackers.csv_tracker import CSVTracker
 
 
 def __parse_args() -> argparse.Namespace:
@@ -39,9 +42,9 @@ def __parse_args() -> argparse.Namespace:
                         default="configs/model/ddim_medium.json")
     parser.add_argument("--training_type", type=str, default="diffusion",
                         help="Type of training to use (evaluate, diffusion, generative)")
-    parser.add_argument("--distillation_type", type=str, default="generation",
-                        help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse_42/",
+    parser.add_argument("--distillation_type", type=str, default=None,
+                        help="Type of distillation to use (gaussian, gaussian_symmetry, generation, partial_generation, no_distillation)")
+    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (smooth_l1, mse, min_snr)")
@@ -50,29 +53,18 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher_generation_steps", type=int, default=5)
     parser.add_argument("--eta", type=float, default=0.0)
 
-    parser.add_argument("--num_epochs", type=int, default=20000)
+    parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--eval_batch_size", type=int, default=128)
 
-    parser.add_argument("--save_every", type=int, default=500,
+    parser.add_argument("--save_every", type=int, default=5,
                         help="Save model every n iterations (only for distillation)")
-    parser.add_argument("--use_wandb", action="store_true", default=True)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--use_wandb", action="store_true", default=False)
+    parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
 
-def main(args):
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    random.seed(args.seed)
-
-    model_name = args.model_config_path.split("/")[-1].split(".")[0]
-    run_name = f"{args.dataset}/{args.training_type}/{args.distillation_type}/{model_name}_{args.criterion}_{args.seed}"
-    results_folder = os.path.join("results", run_name)
-    os.makedirs(results_folder, exist_ok=True)
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
+def run_experiment(args, device, model_config, tracker, results_folder):
     preprocess = transforms.Compose(
         [
             transforms.Resize((args.image_size, args.image_size)),
@@ -90,25 +82,8 @@ def main(args):
     else:
         raise NotImplementedError
 
-    model_config = get_configuration(args.model_config_path)
-
     evaluator = GenerativeModelEvaluator(
-        device=device, save_images=50, save_path=results_folder)
-        
-    all_configs = {
-        "model_config": model_config,
-        "args": vars(args)
-    }
-
-    if args.use_wandb and args.training_type != "evaluate":
-        tracker = WandbTracker(
-            configs=all_configs,
-            experiment_name=run_name.split("/")[-1],
-            project_name=f"master-thesis-{args.dataset}-{args.training_type}-{args.distillation_type}",
-            tags=[args.dataset, args.training_type, str(args.distillation_type), model_name, args.criterion],
-        )
-    else:
-        tracker = None
+        device=device, save_images=100, save_path=results_folder)
 
     if args.training_type == "diffusion":
         model = UNet2DModel(
@@ -169,6 +144,8 @@ def main(args):
 
             if args.distillation_type == "gaussian":
                 trainer_class = GaussianDistillation
+            elif args.distillation_type == "gaussian_symmetry":
+                trainer_class = GaussianSymmetryDistillation
             elif args.distillation_type == "generation":
                 trainer_class = GenerationDistillation
             elif args.distillation_type == "partial_generation":
@@ -230,10 +207,76 @@ def main(args):
         model = model_pipeline.unet.to(device)
         wrap_in_pipeline(model, model_pipeline.scheduler, DDIMPipeline,
                             args.teacher_generation_steps, args.eta)
-        evaluator.evaluate(model, test_dataloader, args.generation_steps)
+        evaluator.evaluate(model, test_dataloader, gensteps=args.generation_steps, compute_auc=False, fid_images=0)
 
     else:
         raise NotImplementedError
+    
+
+def main(args):
+    model_name = args.model_config_path.split("/")[-1].split(".")[0]
+    run_name = f"{args.dataset}/{args.training_type}/{args.distillation_type}/{model_name}_{args.criterion}"
+    if args.seed is not None:
+        run_name += f"_{args.seed}"
+    results_folder = os.path.join("results", run_name)
+    os.makedirs(results_folder, exist_ok=True)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    model_config = get_configuration(args.model_config_path)
+        
+    all_configs = {
+        "model_config": model_config,
+        "args": vars(args)
+    }
+
+    if args.use_wandb and args.training_type != "evaluate":
+        tracker = WandbTracker(
+            configs=all_configs,
+            experiment_name=run_name.split("/")[-1],
+            project_name=f"master-thesis-{args.dataset}-{args.training_type}-{args.distillation_type}",
+            tags=[args.dataset, args.training_type, str(args.distillation_type), model_name, args.criterion],
+        )
+    else:
+        tracker = None
+
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
+        random.seed(args.seed)
+        run_experiment(args, device, model_config, tracker, results_folder)
+    else:
+        assert not args.use_wandb, "Cannot use wandb with multiple seeds"
+         
+        for seed in [42, 69, 420, 666, 1714]:
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+            random.seed(seed)
+            results_seed_folder = os.path.join(results_folder, str(seed))
+            os.makedirs(results_seed_folder, exist_ok=True)
+            tracker = CSVTracker(all_configs, results_seed_folder)
+            run_experiment(args, device, model_config, tracker, results_seed_folder)
+
+        # Check the best model for each seed and print the best one
+        best_auc = torch.inf
+        best_epoch = None
+        best_seed = None
+        for seed in [42, 69, 420, 666, 1714]:
+            results_seed_folder = os.path.join(results_folder, str(seed))
+            csv_file = open(os.path.join(results_seed_folder, "test.csv"), "r")
+            df = pd.read_csv(csv_file)
+
+            # Get the row with the best AUC
+            row = df.loc[df["metric"] == "auc"].sort_values(by=["value"]).iloc[0]
+            auc = row["value"]
+            epoch = row["epoch"]
+
+            if auc < best_auc:
+                best_auc = auc
+                best_epoch = epoch
+                best_seed = seed
+
+        print(f"Best seed: {best_seed} at epoch {best_epoch} with AUC {best_auc}")
 
 
 if __name__ == "__main__":

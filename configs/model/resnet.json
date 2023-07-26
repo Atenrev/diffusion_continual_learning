@@ -1,0 +1,10 @@
+{
+    "model": {
+        "name": "resnet18",
+        "n_classes": 10
+    },
+    "optimizer": {
+        "name": "adam",
+        "lr": 0.001
+    }
+}

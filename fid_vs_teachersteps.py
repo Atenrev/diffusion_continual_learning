@@ -24,6 +24,7 @@ from src.trainers.diffusion_distillation import (
 )
 from src.evaluators.generative_evaluator import GenerativeModelEvaluator
 from src.common.visual import plot_line_graph
+from src.trackers.csv_tracker import CSVTracker
 
 
 def __parse_args() -> argparse.Namespace:
@@ -38,12 +39,12 @@ def __parse_args() -> argparse.Namespace:
                         default="configs/model/ddim_medium.json")
     parser.add_argument("--distillation_type", type=str, default="generation",
                         help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse_42/",
+    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (mse, min_snr)")
 
-    parser.add_argument("--generation_steps", type=int, default=20)
+    parser.add_argument("--generation_steps", type=int, default=20) # Not used for evaluation
     parser.add_argument("--eta", type=float, default=0.0)
     parser.add_argument("--teacher_eta", type=float, default=0.0)
 
@@ -126,14 +127,15 @@ def main(args):
     teacher_pipeline.set_progress_bar_config(disable=True)
     teacher = teacher_pipeline.unet.to(device)
 
-    fid_list = []
+    auc_list = []
     time_list = []
     gen_steps = [1, 2, 5, 10, 20, 50, 100]
     for gen_step in gen_steps:
         save_path = os.path.join(results_folder, f"gen_step_{gen_step}")
         os.makedirs(save_path, exist_ok=True)
         evaluator = GenerativeModelEvaluator(
-            device=device, save_images=50, save_path=save_path)
+            device=device, save_images=100, save_path=save_path)
+        tracker = CSVTracker(all_configs, save_path)
 
         print(
             f"\n\n======= Training with {gen_step} generation steps =======\n")
@@ -157,23 +159,24 @@ def main(args):
             eval_mb_size=args.eval_batch_size,
             device=device,
             train_timesteps=model_config.scheduler.train_timesteps,
-            evaluator=evaluator
+            evaluator=evaluator,
+            tracker=tracker,
         )
 
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
 
         start.record()
-        fid = trainer.train(teacher, eval_loader=test_dataloader,
+        metrics = trainer.train(teacher, eval_loader=test_dataloader,
                       save_every=args.save_every, save_path=save_path)
         end.record()
 
         torch.cuda.synchronize()
         time_list.append(start.elapsed_time(end))
-        fid_list.append(fid)
+        auc_list.append(metrics["auc"])
 
         print(f"Time taken: {start.elapsed_time(end)} ms")
-        print(f"Best FID: {fid}")
+        print(f"Best FID: {metrics['auc']}")
 
     # Save results as json
     results = {
@@ -182,7 +185,7 @@ def main(args):
             "model_config": model_config,
         },
         "results": {
-            "fid_list": fid_list,
+            "fid_list": auc_list,
             "time_list": time_list,
             "gen_steps": gen_steps
         }
@@ -194,7 +197,7 @@ def main(args):
     # Save graph
     plot_line_graph(
         gen_steps,
-        fid_list,
+        auc_list,
         "Teacher's Generation Steps",
         "FID",
         "FID vs Teacher's Generation Steps",

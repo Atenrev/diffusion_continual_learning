@@ -41,12 +41,6 @@ class WandbTracker(ExperimentTracker):
 
     def add_epoch_metric(self, name: str, value: float, step: int, commit: bool = True):
         wandb.log({f"{self.stage.name}/epoch_{name}": value, "epoch": step}, commit=commit)
-
-    @staticmethod
-    def collapse_batches(
-        y_true: List[np.ndarray], y_pred: List[np.ndarray]
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        return np.concatenate(y_true), np.concatenate(y_pred)
         
     def flush(self):
         pass

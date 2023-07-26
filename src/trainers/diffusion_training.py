@@ -1,7 +1,8 @@
+import os
 import torch
-import torch.nn.functional as F
 
 from tqdm import tqdm
+from copy import deepcopy
 from typing import Optional, Tuple
 from diffusers import DDIMPipeline, SchedulerMixin, EMAModel
 
@@ -41,20 +42,30 @@ class DiffusionTraining:
         # adjust = 1* args.batch_size * args.model_ema_steps / args.epochs
         # alpha = 1.0 - args.model_ema_decay
         # alpha = min(1.0, alpha * adjust)
-        self.model_ema = EMAModel(model.parameters())
+        # self.model_ema = EMAModel(model.parameters(), power=3/4)
 
         self.best_model = None
 
 
-    def save(self, path):
+    def save(self, path, epoch):
         pipeline = DDIMPipeline(self.model, self.scheduler)
         pipeline.save_pretrained(path)
+
+        # Save optimizer and training state
+        torch.save({
+            "optimizer": self.optimizer.state_dict(),
+            "current_epoch": epoch,
+        }, os.path.join(path, "training_state.pt"))
 
     def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError
 
     def train(self, train_loader, eval_loader, save_path: str = "./results/diffusion", save_every: int = 1):
-        best_fid = torch.inf
+        best_auc = torch.inf
+        best_model_path = os.path.join(save_path, "best_model")
+        last_model_path = os.path.join(save_path, "last_model")
+        os.makedirs(best_model_path, exist_ok=True)
+        os.makedirs(last_model_path, exist_ok=True)
         
         for epoch in range(self.train_epochs):
             print(f"Epoch {epoch}")
@@ -89,7 +100,7 @@ class DiffusionTraining:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
 
                 self.optimizer.step()
-                self.model_ema.step()
+                # self.model_ema.step()
 
                 if self.tracker is not None:
                     self.tracker.add_batch_metric("loss", loss.item(), step + epoch * len(train_loader))
@@ -99,22 +110,30 @@ class DiffusionTraining:
 
             if self.tracker is not None:
                 self.tracker.add_epoch_metric("loss", average_loss / len(train_loader), epoch)
+                self.tracker.flush()
 
-            fid = torch.inf
+            auc = torch.inf
 
-            if self.evaluator is not None and (save_every > 0 and epoch % save_every == 0 and epoch > 0 or epoch == self.train_epochs - 1):
-                fid = self.evaluator.evaluate(self.model, eval_loader, epoch)["fid"]
+            if save_every > 0 and epoch % save_every == 0 and epoch > 0 or epoch == self.train_epochs - 1:
+                if self.evaluator is not None:
+                    if self.tracker is not None:
+                            self.tracker.set_stage(Stage.TEST)
 
-                if self.tracker is not None:
-                    self.tracker.set_stage(Stage.TEST)
-                    self.tracker.add_epoch_metric("fid", fid, epoch)
+                    metrics = self.evaluator.evaluate(self.model, eval_loader, epoch, compute_auc=True)
+                    auc = metrics["auc"]
 
-            if fid <= best_fid:
-                best_fid = fid 
-                self.best_model = self.model
-                self.save(save_path)
-                
-            self.save(save_path)
+                    if self.tracker is not None:
+                        for key, value in metrics.items():
+                            self.tracker.add_epoch_metric(key, value, epoch)
+                        self.tracker.flush()
+
+                if auc <= best_auc:
+                    print(f"New best model with AUC {auc}")
+                    best_auc = auc 
+                    self.best_model = deepcopy(self.model)
+                    self.save(best_model_path, epoch)
+                    
+                self.save(last_model_path, epoch)
 
         if self.tracker is not None:
             self.tracker.finish()
