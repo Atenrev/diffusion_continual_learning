@@ -27,7 +27,7 @@ def __parse_args() -> argparse.Namespace:
 
     parser.add_argument("--model_config_path", type=str,
                         default="configs/model/ddim_medium.json")
-    parser.add_argument("--model_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42",
+    parser.add_argument("--model_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/best_model",
                         help="Path to teacher model (only for distillation)")
 
     parser.add_argument("--eta", type=float, default=0.0)
@@ -127,8 +127,8 @@ def main(args):
     # Save graph
     plot_line_std_graph(
         num_samples,
-        [np.mean(f) for f in all_fid_list],
-        [np.std(f) for f in all_fid_list],
+        np.array([np.mean(t) for t in all_fid_list]),
+        np.array([np.std(t) for t in all_fid_list]),
         "Num Samples",
         "FID",
         "FID vs Number of Samples",
@@ -137,8 +137,8 @@ def main(args):
 
     plot_line_std_graph(
         num_samples,
-        [np.mean(t) / 1000 for t in all_time_list],
-        [np.std(t) / 1000 for t in all_time_list],
+        np.array([np.mean(t) / 1000 for t in all_time_list]),
+        np.array([np.std(t) / 1000 for t in all_time_list]),
         "Num Samples",
         "Time (s)",
         "Time vs Number of Samples",

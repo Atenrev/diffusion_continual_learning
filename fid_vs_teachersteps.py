@@ -5,7 +5,6 @@ import numpy as np
 import random
 import json
 
-from copy import deepcopy
 from torch.optim import Adam
 from torchvision import transforms
 from diffusers import UNet2DModel, DDIMScheduler
@@ -39,7 +38,7 @@ def __parse_args() -> argparse.Namespace:
                         default="configs/model/ddim_medium.json")
     parser.add_argument("--distillation_type", type=str, default="generation",
                         help="Type of distillation to use (gaussian, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/",
+    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/best_model",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (mse, min_snr)")
@@ -135,6 +134,10 @@ def main(args):
         os.makedirs(save_path, exist_ok=True)
         evaluator = GenerativeModelEvaluator(
             device=device, save_images=100, save_path=save_path)
+        all_configs = {
+            "args": vars(args),
+            "model_config": model_config,
+        }
         tracker = CSVTracker(all_configs, save_path)
 
         print(
@@ -175,8 +178,9 @@ def main(args):
         time_list.append(start.elapsed_time(end))
         auc_list.append(metrics["auc"])
 
-        print(f"Time taken: {start.elapsed_time(end)} ms")
-        print(f"Best FID: {metrics['auc']}")
+        print(f"Time taken: {start.elapsed_time(end) / 1000} s")
+        for metric, value in metrics.items():
+            print(f"Best {metric}: {value}")
 
     # Save results as json
     results = {
@@ -199,8 +203,8 @@ def main(args):
         gen_steps,
         auc_list,
         "Teacher's Generation Steps",
-        "FID",
-        "FID vs Teacher's Generation Steps",
+        "Student FID",
+        "Student FID vs Teacher's Generation Steps",
         os.path.join(results_folder, "fid_vs_gensteps.png")
     )
 
