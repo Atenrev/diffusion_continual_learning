@@ -28,6 +28,7 @@ def plot_bar(x, y, x_label, y_label, title, save_path, color='skyblue'):
     # Save the graph to disk
     plt.tight_layout()
     plt.savefig(save_path)
+    plt.close()
 
 
 def plot_line_graph(x, y, x_label, y_label, title, save_path, color='skyblue'):
@@ -49,6 +50,7 @@ def plot_line_graph(x, y, x_label, y_label, title, save_path, color='skyblue'):
     # Save the graph to disk
     plt.tight_layout()
     plt.savefig(save_path)
+    plt.close()
 
 
 def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, color='skyblue'):
@@ -71,3 +73,4 @@ def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, color='sk
     # Save the graph to disk
     plt.tight_layout()
     plt.savefig(save_path)
+    plt.close()

@@ -189,7 +189,7 @@ def main(args):
             "model_config": model_config,
         },
         "results": {
-            "fid_list": auc_list,
+            "auc_list": auc_list,
             "time_list": time_list,
             "gen_steps": gen_steps
         }
@@ -203,8 +203,8 @@ def main(args):
         gen_steps,
         auc_list,
         "Teacher's Generation Steps",
-        "Student FID",
-        "Student FID vs Teacher's Generation Steps",
+        "Student AUC",
+        "Student AUC vs Teacher's Generation Steps",
         os.path.join(results_folder, "fid_vs_gensteps.png")
     )
 

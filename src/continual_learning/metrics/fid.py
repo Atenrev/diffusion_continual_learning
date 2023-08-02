@@ -6,7 +6,7 @@ from avalanche.evaluation import Metric, PluginMetric
 from avalanche.evaluation.metric_results import MetricResult, MetricValue
 from avalanche.evaluation.metric_utils import get_metric_name
 
-
+# TODO: Fix the number of generated samples to 10000
 # a standalone metric implementation
 class FIDMetric(Metric[float]):
     """

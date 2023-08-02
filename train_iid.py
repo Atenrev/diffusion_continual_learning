@@ -44,19 +44,20 @@ def __parse_args() -> argparse.Namespace:
                         help="Type of training to use (evaluate, diffusion, generative)")
     parser.add_argument("--distillation_type", type=str, default=None,
                         help="Type of distillation to use (gaussian, gaussian_symmetry, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/",
+    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/best_model",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (smooth_l1, mse, min_snr)")
 
     parser.add_argument("--generation_steps", type=int, default=20)
-    parser.add_argument("--teacher_generation_steps", type=int, default=5)
+    parser.add_argument("--teacher_generation_steps", type=int, default=2)
     parser.add_argument("--eta", type=float, default=0.0)
 
     parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--eval_batch_size", type=int, default=128)
 
+    parser.add_argument("--results_folder", type=str, default="/esat/fuji/smasipca/iid_results")
     parser.add_argument("--save_every", type=int, default=5,
                         help="Save model every n iterations (only for distillation)")
     parser.add_argument("--use_wandb", action="store_true", default=False)
@@ -215,10 +216,10 @@ def run_experiment(args, device, model_config, tracker, results_folder):
 
 def main(args):
     model_name = args.model_config_path.split("/")[-1].split(".")[0]
-    run_name = f"{args.dataset}/{args.training_type}/{args.distillation_type}/{model_name}_{args.criterion}"
+    run_name = f"{args.dataset}/{args.training_type}/{args.distillation_type}/{model_name}_{args.criterion}_teacher_{args.teacher_generation_steps}"
     if args.seed is not None:
         run_name += f"_{args.seed}"
-    results_folder = os.path.join("results", run_name)
+    results_folder = os.path.join(args.results_folder, run_name)
     os.makedirs(results_folder, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

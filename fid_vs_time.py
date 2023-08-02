@@ -27,7 +27,7 @@ def __parse_args() -> argparse.Namespace:
 
     parser.add_argument("--model_config_path", type=str,
                         default="configs/model/ddim_medium.json")
-    parser.add_argument("--model_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42",
+    parser.add_argument("--model_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/best_model",
                         help="Path to teacher model (only for distillation)")
 
     parser.add_argument("--eta", type=float, default=0.0)
