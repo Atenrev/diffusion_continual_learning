@@ -1,5 +1,5 @@
 {
-    "strategy": "full_generation_distillation",
+    "strategy": "partial_generation_distillation",
     "train_batch_size": 128,
     "eval_batch_size": 128,
     "epochs": 100,

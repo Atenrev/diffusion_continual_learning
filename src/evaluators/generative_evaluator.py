@@ -15,26 +15,34 @@ class GenerativeModelEvaluator(BaseEvaluator):
         self.save_path = save_path
         self.fid_feature_size = fid_feature_size
         self.save_images = save_images
-        self.reset_fid()
+        self.real_features_computed = False
+        self.fid = FrechetInceptionDistance(normalize=True, 
+                                            reset_real_features=False, 
+                                            feature=self.fid_feature_size)
+
+        if self.device == "cuda":
+            self.fid.cuda()
 
     def evaluate_fid(self, model, dataloader, epoch: int = 0, fid_images: int = 10000, gensteps: int = 20) -> float:
         print("Evaluating FID...")
         self.fid.reset()
+        batch_size = dataloader.batch_size
 
-        print("Processing real images...")
-        batch_size = 1
+        if not self.real_features_computed:
+            print("Processing real images...")
 
-        for batch in tqdm(dataloader):
-            batch = batch["pixel_values"].to(self.device)
-            batch_size = max(batch_size, batch.shape[0])
+            for batch in tqdm(dataloader):
+                batch = batch["pixel_values"].to(self.device)
 
-            if batch.min() < 0:
-                batch = (batch + 1) / 2
-            
-            if batch.shape[1] == 1:
-                batch = torch.cat([batch] * 3, dim=1)
+                if batch.min() < 0:
+                    batch = (batch + 1) / 2
+                
+                if batch.shape[1] == 1:
+                    batch = torch.cat([batch] * 3, dim=1)
 
-            self.fid.update(batch, real=True)
+                self.fid.update(batch, real=True)
+
+            self.real_features_computed = True
 
         print("Processing generated images...")
             
@@ -117,10 +125,3 @@ class GenerativeModelEvaluator(BaseEvaluator):
             results[f"fid_{genstep}"] = fid_list[i]
 
         return results
-        
-
-    def reset_fid(self):
-        self.fid = FrechetInceptionDistance(normalize=True, feature=self.fid_feature_size)
-
-        if self.device == "cuda":
-            self.fid.cuda()

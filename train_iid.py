@@ -11,6 +11,7 @@ from diffusers import UNet2DModel, DDIMScheduler
 
 from src.datasets.fashion_mnist import create_dataloader as create_fashion_mnist_dataloader
 from src.datasets.mnist import create_dataloader as create_mnist_dataloader
+from src.datasets.cifar100 import create_dataloader as create_cifar100_dataloader 
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline
 from src.pipelines.pipeline_ddim import DDIMPipeline
@@ -50,8 +51,9 @@ def __parse_args() -> argparse.Namespace:
                         help="Criterion to use for training (smooth_l1, mse, min_snr)")
 
     parser.add_argument("--generation_steps", type=int, default=20)
-    parser.add_argument("--teacher_generation_steps", type=int, default=2)
     parser.add_argument("--eta", type=float, default=0.0)
+    parser.add_argument("--teacher_generation_steps", type=int, default=2)
+    parser.add_argument("--teacher_eta", type=float, default=0.0)
 
     parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=128)
@@ -59,7 +61,7 @@ def __parse_args() -> argparse.Namespace:
 
     parser.add_argument("--results_folder", type=str, default="/esat/fuji/smasipca/iid_results")
     parser.add_argument("--save_every", type=int, default=5,
-                        help="Save model every n iterations (only for distillation)")
+                        help="Evaluate and save model every n epochs (normal) or n iterations (distillation)")
     parser.add_argument("--use_wandb", action="store_true", default=False)
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
@@ -79,6 +81,9 @@ def run_experiment(args, device, model_config, tracker, results_folder):
             args.batch_size, preprocess)
     elif args.dataset == "fashion_mnist":
         train_dataloader, test_dataloader = create_fashion_mnist_dataloader(
+            args.batch_size, preprocess)
+    elif args.dataset == "cifar100":
+        train_dataloader, test_dataloader = create_cifar100_dataloader(
             args.batch_size, preprocess)
     else:
         raise NotImplementedError
@@ -141,7 +146,7 @@ def run_experiment(args, device, model_config, tracker, results_folder):
             teacher_pipeline.set_progress_bar_config(disable=True)
             teacher = teacher_pipeline.unet.to(device)
             wrap_in_pipeline(teacher, noise_scheduler, DDIMPipeline,
-                             args.teacher_generation_steps, args.eta, def_output_type="torch_raw")
+                             args.teacher_generation_steps, args.teacher_eta, def_output_type="torch_raw")
 
             if args.distillation_type == "gaussian":
                 trainer_class = GaussianDistillation
@@ -216,7 +221,9 @@ def run_experiment(args, device, model_config, tracker, results_folder):
 
 def main(args):
     model_name = args.model_config_path.split("/")[-1].split(".")[0]
-    run_name = f"{args.dataset}/{args.training_type}/{args.distillation_type}/{model_name}_{args.criterion}_teacher_{args.teacher_generation_steps}"
+    run_name = f"{args.dataset}/{args.training_type}/{args.distillation_type}/{model_name}_{args.criterion}"
+    if args.distillation_type is not None:
+        run_name += f"_teacher_steps_{args.teacher_generation_steps}_eta_{args.teacher_eta}"
     if args.seed is not None:
         run_name += f"_{args.seed}"
     results_folder = os.path.join(args.results_folder, run_name)
@@ -242,17 +249,19 @@ def main(args):
         tracker = None
 
     if args.seed is not None:
-        torch.manual_seed(args.seed)
-        np.random.seed(args.seed)
         random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
         run_experiment(args, device, model_config, tracker, results_folder)
     else:
         assert not args.use_wandb, "Cannot use wandb with multiple seeds"
          
         for seed in [42, 69, 420, 666, 1714]:
-            torch.manual_seed(seed)
-            np.random.seed(seed)
             random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
             results_seed_folder = os.path.join(results_folder, str(seed))
             os.makedirs(results_seed_folder, exist_ok=True)
             tracker = CSVTracker(all_configs, results_seed_folder)

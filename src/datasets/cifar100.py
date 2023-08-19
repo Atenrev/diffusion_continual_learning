@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 
 def create_dataloader(batch_size: int = 128, transform: transforms.Compose = None, classes: list = None):
     # load dataset from the hub
-    dataset = load_dataset("fashion_mnist")
+    dataset = load_dataset("cifar100")
 
     # filter dataset
     if classes is not None:
@@ -17,8 +17,8 @@ def create_dataloader(batch_size: int = 128, transform: transforms.Compose = Non
         ])
 
     def apply_transforms(examples):
-        examples["pixel_values"] = [transform(image.convert("L")) for image in examples["image"]]
-        del examples["image"]
+        examples["pixel_values"] = [transform(image) for image in examples["img"]]
+        del examples["img"]
         return examples
 
     transformed_dataset = dataset.with_transform(apply_transforms)

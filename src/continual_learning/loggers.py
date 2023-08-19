@@ -335,11 +335,13 @@ class CSVLogger(BaseLogger, SupervisedPlugin):
         super().__init__()
         self.log_folder = log_folder if log_folder is not None else "csvlogs"
         os.makedirs(self.log_folder, exist_ok=True)
+        training_file_path = os.path.join(self.log_folder, "training_results.csv")
+        eval_file_path = os.path.join(self.log_folder, "eval_results.csv")
 
-        self.training_file = open(
-            os.path.join(self.log_folder, "training_results.csv"), "w"
-        )
-        self.eval_file = open(os.path.join(self.log_folder, "eval_results.csv"), "w")
+        file_exists = os.path.isfile(training_file_path)
+
+        self.training_file = open(training_file_path, "a")
+        self.eval_file = open(eval_file_path, "a")
 
         self.metric_vals = {}
 
@@ -350,7 +352,10 @@ class CSVLogger(BaseLogger, SupervisedPlugin):
         # evaluation within training will not change this flag
         self.in_train_phase = None
 
-        # print csv headers
+        if not file_exists:
+            self._print_csv_headers()
+
+    def _print_csv_headers(self):
         print(
             "metric_name",
             "training_exp",
@@ -379,7 +384,7 @@ class CSVLogger(BaseLogger, SupervisedPlugin):
 
     def _val_to_str(self, m_val):
         if isinstance(m_val, torch.Tensor):
-            return "\n" + str(m_val)
+            return str(m_val.detach().numpy()).replace('\n', '')
         elif isinstance(m_val, float):
             return f"{m_val:.4f}"
         else:
@@ -408,6 +413,7 @@ class CSVLogger(BaseLogger, SupervisedPlugin):
             for name, x, val in metric_logs:
                 if isinstance(val, UNSUPPORTED_TYPES):
                     continue
+
                 val = self._val_to_str(val)
                 print(
                     name,

@@ -2,7 +2,6 @@ import os
 import json
 import pandas as pd
 import numpy as np
-import seaborn as sns
 import argparse
 import regex as re
 
@@ -17,7 +16,6 @@ def __parse_args() -> argparse.Namespace:
 
 
 def plot_metrics(experiment_path: str):
-    sns.set(style='whitegrid')
     metrics = {}
     
     for seed_folder in os.listdir(experiment_path):
@@ -56,29 +54,37 @@ def create_summary(experiment_path: str):
         if not os.path.isdir(seed_path):
             continue
 
-        best_seed_metrics = {}
-        best_seed_auc = float('inf')
+        # best_seed_metrics = {}
+        # best_seed_auc = float('inf')
+        last_seed_metrics = {}
         
         for file_name in os.listdir(seed_path):
             if file_name.endswith('.csv') and file_name.startswith('test'):
                 file_path = os.path.join(seed_path, file_name)
                 df = pd.read_csv(file_path)
                 
-                for epoch in df['epoch'].unique():
-                    epoch_data = df[df['epoch'] == epoch]
-                    auc_value = epoch_data[epoch_data['metric'] == 'auc']['value'].values[0]
-                    
-                    if auc_value < best_auc:
-                        best_seed = seed_folder
-                        best_epoch = epoch
-                        best_auc = auc_value
-                        best_metrics = epoch_data.set_index('metric')['value'].to_dict()
+                # for epoch in df['epoch'].unique():
+                    # epoch_data = df[df['epoch'] == epoch]
+                    # auc_value = epoch_data[epoch_data['metric'] == 'auc']['value'].values[0]
+                
+                # Get last epoch
+                epoch = df['epoch'].max()
+                epoch_data = df[df['epoch'] == epoch]
+                auc_value = epoch_data[epoch_data['metric'] == 'auc']['value'].values[0]
+                last_seed_metrics = epoch_data.set_index('metric')['value'].to_dict()
 
-                    if auc_value < best_seed_auc:
-                        best_seed_auc = auc_value
-                        best_seed_metrics = epoch_data.set_index('metric')['value'].to_dict()
+                if auc_value < best_auc:
+                    best_seed = seed_folder
+                    best_epoch = epoch
+                    best_auc = auc_value
+                    best_metrics = epoch_data.set_index('metric')['value'].to_dict()
 
-        best_seeds_metrics[seed_folder] = best_seed_metrics
+                    # if auc_value < best_seed_auc:
+                    #     best_seed_auc = auc_value
+                    #     best_seed_metrics = epoch_data.set_index('metric')['value'].to_dict()
+
+        # best_seeds_metrics[seed_folder] = best_seed_metrics
+        best_seeds_metrics[seed_folder] = last_seed_metrics
     
     print(f"Best Seed: {best_seed}, Best Epoch: {best_epoch}")
     print("Best Metrics:")
@@ -163,12 +169,13 @@ def create_table(experiment_path: str, metrics: dict):
     table = np.array(table)
 
     # Create a dataframe with the table
-    metric_names = [re.sub(r'(\d+)', r'{DDIM(\1)}', metric_name) for metric_name in metrics_names]
-    metric_names = [ "$" + metric_name.upper() + "$" for metric_name in metric_names]
-    df = pd.DataFrame(table, columns=['Experiment Name'] + metric_names)
+    # metrics_names = [re.sub(r'(\d+)', r'{DDIM(\1)}', metric_name) for metric_name in metrics_names]
+    metrics_names = [ "$" + metric_name.upper() + "$" for metric_name in metrics_names]
+    df = pd.DataFrame(table, columns=['Experiment Name'] + metrics_names)
     df = df.set_index('Experiment Name').rename_axis(None)
 
     # Save the dataframe to csv
+    
     df.to_csv(os.path.join(experiment_path, 'summary.csv'))
 
     # Save the dataframe to latex

@@ -2,8 +2,8 @@
     "model": {
         "name": "unet2d",
         "input_size": 32,
-        "in_channels": 1,
-        "out_channels": 1,
+        "in_channels": 3,
+        "out_channels": 3,
         "layers_per_block": 2,
         "block_out_channels": [128, 256, 512, 1024],
         "norm_num_groups": 32,

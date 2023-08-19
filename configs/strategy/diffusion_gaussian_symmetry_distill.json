@@ -1,12 +1,10 @@
 {
-    "strategy": "full_generation_distillation",
+    "strategy": "gaussian_symmetry_distillation",
     "train_batch_size": 128,
     "eval_batch_size": 128,
     "epochs": 100,
     "increasing_replay_size": false,
     "replay_size": null,
     "replay_start_timestep": 0,
-    "weight_replay_loss": true,
-    "teacher_steps": 2,
-    "teacher_eta": 0.0
+    "weight_replay_loss": true
 }

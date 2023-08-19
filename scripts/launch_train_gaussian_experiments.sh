@@ -1,2 +1,2 @@
-condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python train_iid.py --distillation_type gaussian --save_every 1000 --num_epochs 20000'
-condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python train_iid.py --distillation_type gaussian_symmetry --save_every 1000 --num_epochs 20000'
+condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python train_iid.py --model_config_path "configs/model/ddim_medium.json" --distillation_type gaussian --save_every 1000 --num_epochs 20000'
+condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python train_iid.py --model_config_path "configs/model/ddim_medium.json" --distillation_type gaussian_symmetry --save_every 1000 --num_epochs 20000'

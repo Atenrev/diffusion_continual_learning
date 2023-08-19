@@ -20,7 +20,7 @@ from avalanche.logging import InteractiveLogger
 from diffusers import SchedulerMixin
 
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin, TrainGeneratorAfterExpPlugin
-from src.continual_learning.metrics.fid import TrainedExperienceFIDMetric
+from src.continual_learning.metrics.diffusion_metrics import DiffusionMetricsMetric
 
 
 class WeightedSoftGenerativeReplay(SupervisedTemplate):
@@ -173,7 +173,7 @@ class WeightedSoftGenerativeReplay(SupervisedTemplate):
 
 def get_default_generator_logger():
     return EvaluationPlugin(
-        [TrainedExperienceFIDMetric()],
+        [DiffusionMetricsMetric()],
         loggers=[InteractiveLogger()]
     )
 
@@ -278,6 +278,12 @@ class BaseDiffusionTraining(SupervisedTemplate):
         loss = loss.sum()
         return loss
     
+    def generate_samples(self, batch_size):
+        """
+        Generate samples from the generator.
+        """
+        return self.model.generate(batch_size, output_type="torch")
+    
     def criterion(self):
         """
         Compute the loss for the current minibatch.
@@ -372,7 +378,8 @@ class BaseDiffusionTraining(SupervisedTemplate):
             self._before_eval_iteration(**kwargs)
 
             self._before_eval_forward(**kwargs)
-            self.mb_output = self.model.generate(self.mbatch[0].shape[0], output_type="torch")
+            # self.mb_output = self.model.generate(self.mbatch[0].shape[0], output_type="torch")
+            self.mb_output = None
             self._after_eval_forward(**kwargs)
             # self.loss = self.criterion()
 
@@ -443,7 +450,42 @@ class GaussianDistillationDiffusionTraining(BaseDiffusionTraining):
             self.timesteps = torch.cat([self.timesteps, timesteps_replay], dim=0)
 
         return self.model(noisy_images, self.timesteps, return_dict=False)[0]
-    
+
+
+class GaussianSymmetryDistillationDiffusionTraining(BaseDiffusionTraining):
+    def __init__(self,
+                *args, **kwargs
+                ):
+        super().__init__(*args, **kwargs)
+
+    def forward(self):
+        batch_size = self.mbatch[0].shape[0]
+        noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, self.timesteps)
+
+        if not self.untrained_generator:
+            assert self.old_model is not None
+            sample_size = self.mbatch[0].shape[-1]
+            timesteps_replay = torch.randint(
+                self.replay_start_timestep, self.scheduler.config.num_train_timesteps, (batch_size,), device=self.device
+            ).long()
+            noise_replay = torch.randn(self.mbatch[0].shape).to(self.device)
+            # Symmetrize noise
+            t_666_333_idx = torch.where((timesteps_replay <= 666) & (timesteps_replay > 333))[0]
+            t_666_333_idx_h = t_666_333_idx[:len(t_666_333_idx)//2]
+            t_666_333_idx_v = t_666_333_idx[len(t_666_333_idx)//2:]
+            t_333_1_idx = torch.where(timesteps_replay <= 333)[0]
+            noise_replay[t_666_333_idx_h, :, :sample_size//2, :] = torch.flip(noise_replay[t_666_333_idx_h, :, sample_size//2:, :], dims=[2,])
+            noise_replay[t_666_333_idx_v, :, :, :sample_size//2] = torch.flip(noise_replay[t_666_333_idx_v, :, :, sample_size//2:], dims=[3,])
+            noise_replay[t_333_1_idx, :, :sample_size//2, :] = torch.flip(noise_replay[t_333_1_idx, :, sample_size//2:, :], dims=[2,])
+            noise_replay[t_333_1_idx, :, :, :sample_size//2] = torch.flip(noise_replay[t_333_1_idx, :, :, sample_size//2:], dims=[3,])
+            with torch.no_grad():
+                noise_prediction = self.old_model(noise_replay, timesteps_replay, return_dict=False)[0]
+            noisy_images = torch.cat([noisy_images, noise_replay], dim=0)
+            self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
+            self.timesteps = torch.cat([self.timesteps, timesteps_replay], dim=0)
+
+        return self.model(noisy_images, self.timesteps, return_dict=False)[0]
+
 
 class LwFDistillationDiffusionTraining(BaseDiffusionTraining):
     def __init__(self,
@@ -506,6 +548,69 @@ class FullGenerationDistillationDiffusionTraining(BaseDiffusionTraining):
 
             noisy_images = torch.cat([noisy_images, noisy_replay_images], dim=0)
             self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
+            self.timesteps = torch.cat([self.timesteps, timesteps_replay], dim=0)
+
+        return self.model(noisy_images, self.timesteps, return_dict=False)[0]
+    
+
+class PartialGenerationDistillationDiffusionTraining(BaseDiffusionTraining):
+    def __init__(self,
+                 teacher_steps: int,
+                 teacher_eta: float,
+                *args, **kwargs
+                ):
+        self.teacher_steps = teacher_steps
+        self.teacher_eta = teacher_eta
+        super().__init__(*args, **kwargs)
+
+    def forward(self):
+        batch_size = self.mbatch[0].shape[0]
+        noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, self.timesteps)
+
+        if not self.untrained_generator:
+            assert self.old_model is not None
+            timesteps_replay = torch.randint(
+                self.replay_start_timestep, self.scheduler.config.num_train_timesteps, (batch_size,), device=self.device
+            ).long()
+
+            replay_images = self.old_model.generate(batch_size, timesteps_replay, generation_steps=self.teacher_steps, eta=self.teacher_eta)
+
+            with torch.no_grad():
+                noise_prediction = self.old_model(replay_images, timesteps_replay, return_dict=False)[0]
+
+            noisy_images = torch.cat([noisy_images, replay_images], dim=0)
+            self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
+            self.timesteps = torch.cat([self.timesteps, timesteps_replay], dim=0)
+
+        return self.model(noisy_images, self.timesteps, return_dict=False)[0]
+    
+
+class NoDistillationDiffusionTraining(BaseDiffusionTraining):
+    def __init__(self,
+                 teacher_steps: int,
+                 teacher_eta: float,
+                *args, **kwargs
+                ):
+        self.teacher_steps = teacher_steps
+        self.teacher_eta = teacher_eta
+        super().__init__(*args, **kwargs)
+
+    def forward(self):
+        batch_size = self.mbatch[0].shape[0]
+        noisy_images = self.scheduler.add_noise(self.mbatch[0], self.noise_x, self.timesteps)
+
+        if not self.untrained_generator:
+            assert self.old_model is not None
+            noise_replay = torch.randn(self.mbatch[0].shape).to(self.device)
+            timesteps_replay = torch.randint(
+                self.replay_start_timestep, self.scheduler.config.num_train_timesteps, (batch_size,), device=self.device
+            ).long()
+
+            replay_images = self.old_model.generate(batch_size, generation_steps=self.teacher_steps, eta=self.teacher_eta)
+            noisy_replay_images = self.scheduler.add_noise(replay_images, noise_replay, timesteps_replay)
+
+            noisy_images = torch.cat([noisy_images, noisy_replay_images], dim=0)
+            self.noise_x = torch.cat([self.noise_x, noise_replay], dim=0)
             self.timesteps = torch.cat([self.timesteps, timesteps_replay], dim=0)
 
         return self.model(noisy_images, self.timesteps, return_dict=False)[0]

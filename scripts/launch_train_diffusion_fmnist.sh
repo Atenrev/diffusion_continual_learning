@@ -1,0 +1,1 @@
+condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python train_iid.py -dataset "fashion_mnist" --model_config_path "configs/model/ddim_medium.json" --num_epochs 100'
