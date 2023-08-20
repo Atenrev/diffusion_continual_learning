@@ -82,23 +82,44 @@ def plot_line_graph(x, y, x_label, y_label, title, save_path, color='skyblue', l
     plt.close()
 
 
-def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, color='skyblue', x_ticks=None):
+def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, colors=None, x_ticks=None, y_labels=None):
     # Set up the figure and axis
     fig, ax = plt.subplots()
+    # Make figure larger
+    fig.set_size_inches(12, 8)
 
-    # Plotting the line graph
-    ax.plot(x, y, linestyle='-', color=color)
-    ax.fill_between(x, y - std, y + std, color=color, alpha=0.2)
+    # Plotting multiple line graphs
+    if colors is None:
+        if isinstance(y[0], list) or isinstance(y[0], np.ndarray):
+            # Different colors for each sublist
+            colors = ['skyblue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+        else:
+            colors = 'skyblue'
+    
+    if not isinstance(y[0], list) and not isinstance(y[0], np.ndarray):
+        y = [y]
+        std = [std]
+        colors = [colors]
+
+    for i, y_vals in enumerate(y):
+        color = colors[i]
+        if y_labels is not None:
+            label = y_labels[i]
+        else:
+            label = f"{y_label} {i+1}"
+        ax.plot(x, y_vals, linestyle='-', color=color, label=label)
+        ax.fill_between(x, y_vals - std[i], y_vals + std[i], color=color, alpha=0.2)
 
     # Setting the x-axis tick positions and labels
     if x_ticks is not None:
         ax.set_xticks(np.arange(0, len(x)))
         ax.set_xticklabels(x_ticks)
 
-    # Adding labels and title
+    # Adding labels, legend, and title
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title(title)
+    ax.legend()
 
     # Adjusting the appearance
     ax.spines['top'].set_visible(False)

@@ -1,7 +1,8 @@
 import os
 import torch
 
-from torchvision.models import efficientnet_b0
+import torch.nn as nn
+from torchvision.models import resnet18
 from torchmetrics.image.fid import FrechetInceptionDistance
 from avalanche.training.templates import SupervisedTemplate
 from avalanche.evaluation import Metric, PluginMetric
@@ -111,9 +112,10 @@ class DistributionMetrics(Metric[float]):
 
 class DiffusionMetricsMetric(PluginMetric[float]):
 
-    def __init__(self, device='cuda', weights_path: str = "results/cnn_fmnist/", n_samples: int = 10000):
-        self.classifier = efficientnet_b0()
-        self.classifier.load_state_dict(torch.load(os.path.join(weights_path, "efficient_net.pth")))
+    def __init__(self, device='cuda', weights_path: str = "results/cnn_fmnist/", n_samples: int = 10000, num_classes: int = 10):
+        self.classifier = resnet18()
+        self.classifier.fc = nn.Linear(self.classifier.fc.in_features, num_classes)
+        self.classifier.load_state_dict(torch.load(os.path.join(weights_path, "resnet.pth")))
         self.classifier.to(device)
         self.classifier.eval() 
 
@@ -146,7 +148,7 @@ class DiffusionMetricsMetric(PluginMetric[float]):
             if predicted_samples.shape[1] == 1:
                 predicted_samples = torch.cat([predicted_samples] * 3, dim=1)
             with torch.no_grad():
-                classes = torch.argmax(self.classifier(predicted_samples), dim=1)
+                classes = torch.argmax(self.classifier((predicted_samples - 0.5) * 2), dim=1)
             classes_np = classes.cpu().numpy()
             self.fid_metric.update_predicted(predicted_samples)
             self.dist_metrics.update_predicted(classes_np)
@@ -156,7 +158,7 @@ class DiffusionMetricsMetric(PluginMetric[float]):
             if predicted_samples.shape[1] == 1:
                 predicted_samples = torch.cat([predicted_samples] * 3, dim=1)
             with torch.no_grad():
-                classes = torch.argmax(self.classifier(predicted_samples), dim=1)
+                classes = torch.argmax(self.classifier((predicted_samples - 0.5) * 2), dim=1)
             classes_np = classes.cpu().numpy()
             self.fid_metric.update_predicted(predicted_samples)
             self.dist_metrics.update_predicted(classes_np)

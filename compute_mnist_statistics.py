@@ -5,6 +5,7 @@ import numpy as np
 
 from tqdm import tqdm
 from typing import Any
+import torch.nn as nn
 from torchvision import transforms
 from torchvision.models import resnet18, efficientnet_b0
 
@@ -41,8 +42,8 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--classifier_batch_size", type=int, default=256)
     parser.add_argument("--generator_batch_size", type=int, default=128)
 
-    parser.add_argument("--n_samples", type=int, default=10000)
-    parser.add_argument("--n_steps", type=int, default=5)
+    parser.add_argument("--n_samples", type=int, default=2000)
+    parser.add_argument("--n_steps", type=int, default=10)
     parser.add_argument("--eta", type=float, default=0.0)
     parser.add_argument("--device", type=str, default="cuda")
 
@@ -52,9 +53,10 @@ def __parse_args() -> argparse.Namespace:
 def main(args):
     device = args.device
     model_config = get_configuration(args.model_config_path)
-    classifier = efficientnet_b0()
+    classifier = resnet18()
+    classifier.fc = nn.Linear(classifier.fc.in_features, 10)
     print("Loading model from disk")
-    classifier.load_state_dict(torch.load(os.path.join(args.weights_path, "efficient_net.pth")))
+    classifier.load_state_dict(torch.load(os.path.join(args.weights_path, "resnet.pth")))
     classifier.to(device)
     classifier.eval()
 

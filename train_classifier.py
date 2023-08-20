@@ -8,7 +8,7 @@ from copy import deepcopy
 from tqdm import tqdm
 from torchvision.datasets import FashionMNIST
 from torch.utils.data import DataLoader
-from torchvision.models import resnet18, efficientnet_b0
+from torchvision.models import resnet18
 from src.models.simple_cnn import SimpleCNN
 
 # Train with mixup
@@ -26,8 +26,11 @@ class AddGaussianNoise(object):
 
 def get_data_loaders(batch_size=64):
     transform_train = transforms.Compose([
-        transforms.RandomResizedCrop(32),
+        # transforms.RandomResizedCrop(32),
+        transforms.Resize(32),
         transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(10),
+        transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
         transforms.Normalize((0.5,), (0.5,)),
@@ -36,7 +39,6 @@ def get_data_loaders(batch_size=64):
 
     transform_test = transforms.Compose([
         transforms.Resize(32),
-        transforms.CenterCrop(32),
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
         transforms.Normalize((0.5,), (0.5,))
@@ -54,10 +56,14 @@ def get_data_loaders(batch_size=64):
 
 
 def get_model(num_classes=10):
-    # model = resnet18(pretrained='imagenet') 
-    # model.fc = nn.Linear(model.fc.in_features, num_classes)
+    model = resnet18(pretrained='imagenet') 
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
     # model = SimpleCNN(num_classes=num_classes)
-    model = efficientnet_b0(pretrained='imagenet')
+    # model = mobilenet_v3_large(pretrained=True)
+    # model.classifier = nn.Sequential(
+    #     nn.Dropout(p=0.2, inplace=False),
+    #     nn.Linear(in_features=model.classifier[0].in_features, out_features=num_classes, bias=True)
+    # )
     return model
 
 
@@ -83,7 +89,7 @@ def train_model(model, train_loader, val_loader, num_epochs=10, learning_rate=0.
             optimizer.step()
             running_loss += loss.item()
             accuracy += (outputs.argmax(1) == labels).float().mean()
-            bar.set_description(f"Loss: {loss.item():.4f},Accuracy: {accuracy.item() / (bar.n + 1):.4f}")
+            bar.set_description(f"Loss: {loss.item():.4f}, Accuracy: {accuracy.item() / (bar.n + 1):.4f}")
 
         print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {running_loss / len(train_loader)}, Accuracy: {accuracy / len(train_loader)}")
 
@@ -129,7 +135,7 @@ def evaluate_model(model, test_loader, device='cuda'):
 
 def save_model(model, save_folder='./results/cnn_fmnist'):
     os.makedirs(save_folder, exist_ok=True)
-    save_path = os.path.join(save_folder, 'efficient_net.pth')
+    save_path = os.path.join(save_folder, 'resnet.pth')
     torch.save(model.state_dict(), save_path)
     print(f"Model saved at {save_path}")
 
@@ -137,7 +143,7 @@ def save_model(model, save_folder='./results/cnn_fmnist'):
 def main():
     parser = argparse.ArgumentParser(description='Train and save a ResNet model on FashionMNIST dataset.')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size for data loaders')
-    parser.add_argument('--num_epochs', type=int, default=20, help='Number of epochs for training')
+    parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs for training')
     parser.add_argument('--learning_rate', type=float, default=0.0005, help='Learning rate for the optimizer')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use for training (cuda or cpu)')
     args = parser.parse_args()
