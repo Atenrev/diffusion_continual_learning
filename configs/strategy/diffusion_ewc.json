@@ -1,0 +1,10 @@
+{
+    "strategy": "ewc",
+    "train_batch_size": 128,
+    "eval_batch_size": 128,
+    "epochs": 100,
+    "ewc_lambda": 1.0,
+    "mode": "separate",
+    "decay_factor": null,
+    "keep_importance_data": false
+}

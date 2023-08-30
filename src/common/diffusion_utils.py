@@ -46,12 +46,17 @@ def make_grid(images, rows, cols):
     return grid
 
 
-def evaluate_diffusion(output_dir, eval_batch_size, epoch, generator, generation_steps: int = 20, eta: float = 0.0, seed: Optional[int] = None):
-    os.makedirs(output_dir, exist_ok=True)
-    images = generator.generate(eval_batch_size, output_type="pil", seed=seed, generation_steps=generation_steps, eta=eta)[0]
-    image_grid = make_grid(images, rows=10, cols=10)
+def generate_diffusion_samples(output_dir, eval_batch_size, epoch, generator, generation_steps: int = 20, eta: float = 0.0, seed: Optional[int] = None):
+    generated_images = generator.generate(eval_batch_size, generation_steps=generation_steps, output_type="torch", eta=eta, seed=seed)
+    # To PIL image
+    generated_images = generated_images.mul(255).to(torch.uint8)
+    generated_images = generated_images.permute(0, 2, 3, 1).cpu().numpy()
+    generated_images = [Image.fromarray(img.squeeze()) for img in generated_images]
+    nrows = int(eval_batch_size**0.5)
+    ncols = eval_batch_size // nrows + eval_batch_size % nrows
+    generated_images = make_grid(generated_images, rows=nrows, cols=ncols)
 
     # Save the images
-    test_dir = os.path.join(output_dir, "samples")
-    os.makedirs(test_dir, exist_ok=True)
-    image_grid.save(f"{test_dir}/{epoch:04d}.png")
+    samples_dir = os.path.join(output_dir, "samples")
+    os.makedirs(samples_dir, exist_ok=True)
+    generated_images.save(f"{samples_dir}/{epoch:04d}.png", quality=100, subsampling=0)

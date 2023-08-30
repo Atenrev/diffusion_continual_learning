@@ -4,14 +4,20 @@ import pandas as pd
 import numpy as np
 import argparse
 import regex as re
+import torch
+
+from diffusers import DDIMScheduler
 
 from src.common.visual import plot_line_std_graph
+from src.pipelines.pipeline_ddim import DDIMPipeline
+from src.common.diffusion_utils import wrap_in_pipeline, generate_diffusion_samples
 
 
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()    
     parser.add_argument("--experiments_path", type=str, 
-                        default="results_fuji/smasipca/iid_results/fashion_mnist/diffusion/")
+                        default="results_fuji/smasipca/iid_results/comparison/diffusion/")
+    parser.add_argument("--generate_images", action="store_true")
     return parser.parse_args()
 
 
@@ -35,7 +41,7 @@ def plot_metrics(experiment_path: str):
     
     # Plot each metric and calculate average and std
     for metric, values_list in metrics.items():
-        x = df['epoch'].unique()
+        x = np.arange(len(values_list[0]))
         means = np.array(values_list).mean(axis=0)
         stds = np.array(values_list).std(axis=0)
         output_path = os.path.join(experiment_path, f"{metric}.png")
@@ -85,11 +91,6 @@ def create_summary(experiment_path: str):
 
         # best_seeds_metrics[seed_folder] = best_seed_metrics
         best_seeds_metrics[seed_folder] = last_seed_metrics
-    
-    print(f"Best Seed: {best_seed}, Best Epoch: {best_epoch}")
-    print("Best Metrics:")
-    for metric, value in best_metrics.items():
-        print(f"{metric}: {value}")
 
     # Calculate mean and std for each metric
     metrics_mean_std = {}
@@ -97,13 +98,9 @@ def create_summary(experiment_path: str):
         metric_values = [metrics[metric] for metrics in best_seeds_metrics.values()]
         metrics_mean_std[metric] = {
             'mean': pd.Series(metric_values).mean(),
-            'std': pd.Series(metric_values).std()
+            'std': pd.Series(metric_values).std(),
+            'sem': pd.Series(metric_values).std() / np.sqrt(len(metric_values))
         }
-    
-    # Print mean and std for each metric
-    print("Metrics mean and std:")
-    for metric, values in metrics_mean_std.items():
-        print(f"{metric} - {values['mean']}±{values['std']}")
 
     # Save best seed and epoch to json
     with open(os.path.join(experiment_path, 'summary.json'), 'w') as f:
@@ -117,7 +114,7 @@ def create_summary(experiment_path: str):
     return best_seed, best_epoch, best_metrics, metrics_mean_std
 
 
-def create_table(experiment_path: str, metrics: dict):
+def create_table(experiments_path: str, metrics: dict):
     """
     Create a table with the results of all experiments 
     and save it to a csv file and a latex file.
@@ -160,27 +157,146 @@ def create_table(experiment_path: str, metrics: dict):
         row = [experiment_name]
         for metric_name in metrics_names:
             mean = experiment_metrics[metric_name]['mean']
-            std = experiment_metrics[metric_name]['std']
-            formatted_mean = f"{mean:.3f}"
+            sem = experiment_metrics[metric_name]['sem']
+            formatted_mean = f"{mean:.3f}±{sem:.3f}"
             if mean == best_values[metric_name]:
-                formatted_mean = f"\\textbf{{{mean:.3f}}}"
-            row.append(f"{formatted_mean}±{std:.3f}")
+                formatted_mean = f"\\textbf{{{formatted_mean}}}"
+            row.append(f"{formatted_mean}")
         table.append(row)
     table = np.array(table)
 
     # Create a dataframe with the table
-    # metrics_names = [re.sub(r'(\d+)', r'{DDIM(\1)}', metric_name) for metric_name in metrics_names]
+    metrics_names = [re.sub(r'(\d+)', r'{\1}', metric_name) for metric_name in metrics_names]
+    metrics_names = [metric_name.replace('AUC', 'FID_{\\text{auc}}') for metric_name in metrics_names]
     metrics_names = [ "$" + metric_name.upper() + "$" for metric_name in metrics_names]
     df = pd.DataFrame(table, columns=['Experiment Name'] + metrics_names)
     df = df.set_index('Experiment Name').rename_axis(None)
 
     # Save the dataframe to csv
     
-    df.to_csv(os.path.join(experiment_path, 'summary.csv'))
+    df.to_csv(os.path.join(experiments_path, 'summary.csv'))
 
     # Save the dataframe to latex
-    with open(os.path.join(experiment_path, 'summary.tex'), 'w') as f:
-        f.write(df.to_latex())
+    final_table = df.to_latex()
+    final_table = f"""
+\\begin{{table}}[]
+    \centering
+    {final_table}
+    \caption{{Caption}}
+    \label{{tab:my_label}}
+\end{{table}}
+"""
+    with open(os.path.join(experiments_path, 'summary.tex'), 'w') as f:
+        f.write(final_table)
+
+
+def create_comparison_plots(experiments_path: str):
+    """
+    Create a plot with the comparison of the metrics for each 
+    experiment and save it to a png file.
+
+    Args:
+        experiments_path (str): path to the experiments
+        metrics (dict): dictionary with the metrics for each experiment
+            format: {experiment_name: {metric: {mean: float, std: float}, ...}, ...}
+    """
+    all_metrics = {}
+
+    for root_experiment in os.listdir(experiments_path):
+        root_experiment_path = os.path.join(experiments_path, root_experiment)
+        if not os.path.isdir(root_experiment_path):
+            continue
+
+        for experiment_name in os.listdir(root_experiment_path):
+            experiment_path = os.path.join(root_experiment_path, experiment_name)
+            if not os.path.isdir(experiment_path):
+                continue
+
+            metrics = {}
+            
+            for seed_folder in os.listdir(experiment_path):
+                seed_path = os.path.join(experiment_path, seed_folder)
+                if not os.path.isdir(seed_path):
+                    continue
+                
+                for file_name in os.listdir(seed_path):
+                    if file_name.endswith('.csv') and file_name.startswith('test'):
+                        file_path = os.path.join(seed_path, file_name)
+                        df = pd.read_csv(file_path)
+                        
+                        for metric, group in df.groupby('metric'):
+                            if metric not in metrics:
+                                metrics[metric] = []
+                            metrics[metric].append(group['value'].values)
+            
+            # Plot each metric and calculate average and std
+            for metric, values_list in metrics.items():
+                exp_name = root_experiment
+                means = np.array(values_list).mean(axis=0)
+                stds = np.array(values_list).std(axis=0)
+
+                x = np.arange(len(values_list[0]))
+                if "base" in exp_name: 
+                    x_ticks = (x+1) * 5 * 469 // 1000 
+                else:
+                    x_ticks = x
+                output_path = os.path.join(experiment_path, f"{metric}.png")
+                plot_line_std_graph(x, means, stds, 'Steps (in thousands)', metric, metric, output_path, x_ticks=x_ticks)
+                
+                if metric not in all_metrics:
+                    all_metrics[metric] = {
+                        "x": [],
+                        "means": [],
+                        "stds": [],
+                        "experiment_names": []
+                    }
+
+                all_metrics[metric]["x"].append(np.array(x_ticks))
+                all_metrics[metric]["means"].append(means)
+                all_metrics[metric]["stds"].append(stds)
+                if "base-model" in exp_name: 
+                    exp_name = exp_name.replace('_', ' ')
+                else:
+                    exp_name = exp_name.replace('_', '-')
+
+                    if "distillation" not in exp_name:
+                        exp_name = exp_name + " distillation"
+                    else:
+                        exp_name = "student"
+
+                teacher_ddim_steps = re.findall(r'\d+', experiment_name)
+                exp_name = [exp_name + f" ({teacher_ddim_steps[0]} teacher DDIM steps)" if teacher_ddim_steps else exp_name][0]
+                all_metrics[metric]["experiment_names"].append(exp_name)
+
+    # Create the plot
+    for metric_name in all_metrics:
+        all_means = all_metrics[metric_name]["means"]
+        all_sems = all_metrics[metric_name]["stds"] / np.sqrt(len(all_metrics[metric_name]["stds"]))
+        x = all_metrics[metric_name]["x"]
+        x_ticks = np.arange(max([max(a) for a in x]) + 1) + 1
+        y_labels = all_metrics[metric_name]["experiment_names"]
+        output_path = os.path.join(experiments_path, f"{metric_name}.png")
+        plot_line_std_graph(x, all_means, all_sems, 'Steps (in thousands)', metric_name, f"Comparison - {metric_name}", output_path, x_ticks=x_ticks, y_labels=y_labels)
+
+
+def generate_images(experiment_path: str, best_seed: int):
+    # Model is in last_model in the seed inside the experiment path
+    model_path = os.path.join(experiment_path, str(best_seed), 'last_model')
+    # Load the best model
+    model_pipeline = DDIMPipeline.from_pretrained(model_path)
+    model_pipeline.set_progress_bar_config(disable=True)
+    model = model_pipeline.unet
+    # if cuda use it
+    if torch.cuda.is_available():
+        model = model.cuda()
+    noise_scheduler = DDIMScheduler(num_train_timesteps=1000)
+
+    for steps in [2, 5, 10, 20, 50, 100]:
+        wrap_in_pipeline(model, noise_scheduler, DDIMPipeline,
+                            steps, 0.0, def_output_type="torch_raw")
+        output_dir = os.path.join("samples", "_".join(experiment_path.split('/')[-2:]) + f"_{best_seed}")
+        os.makedirs(output_dir, exist_ok=True)
+        generate_diffusion_samples(output_dir, 100, steps, model, steps, seed=1)
 
 
 if __name__ == '__main__':
@@ -201,10 +317,11 @@ if __name__ == '__main__':
                 continue
             
             try:
-                print(f"Plotting metrics for {experiment_path}...")
-                plot_metrics(experiment_path)
                 print(f"Creating summary for {experiment_path}...")
-                _, _, _, metrics_mean_std = create_summary(experiment_path)
+                best_seed, _, _, metrics_mean_std = create_summary(experiment_path)
+                if args.generate_images:
+                    print(f"Generating images for {experiment_path}...")
+                    generate_images(experiment_path, best_seed)
                 experiment_name = root_experiment + '_' + experiment
                 results_for_table[experiment_name] = metrics_mean_std
             except Exception as e:
@@ -212,3 +329,5 @@ if __name__ == '__main__':
 
     print(f"Creating table with final results...")
     create_table(args.experiments_path, results_for_table)
+    print(f"Creating comparison plots...")
+    create_comparison_plots(args.experiments_path)

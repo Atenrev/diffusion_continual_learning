@@ -12,17 +12,9 @@
 - avalanche-lib 0.3.1
 - torch-fidelity 0.3.0
 
-## Usage
+## Running the code
 
-### Generative Replay With VAE
+### IID experiments
 
-``` shell
-python generative_replay_vae.py [-h] [--image_size IMAGE_SIZE] [--batch_size BATCH_SIZE] [--channels CHANNELS] [--epochs_generator EPOCHS_GENERATOR] [--epochs_solver EPOCHS_SOLVER] [--generator_lr GENERATOR_LR] [--generator_weight_decay GENERATOR_WEIGHT_DECAY] [--solver_lr SOLVER_LR] [--increasing_replay_size INCREASING_REPLAY_SIZE] [--replay_size REPLAY_SIZE] [--seed SEED] [--cuda CUDA] [--debug]
-```
 
-### Generative Replay With Diffusion Models
-
-``` shell
-python generative_replay_diffusion.py [-h] [--image_size IMAGE_SIZE] [--batch_size BATCH_SIZE] [--channels CHANNELS] [--epochs_generator EPOCHS_GENERATOR] [--epochs_solver EPOCHS_SOLVER] [--generator_lr GENERATOR_LR] [--generator_weight_decay GENERATOR_WEIGHT_DECAY] [--solver_lr SOLVER_LR] [--increasing_replay_size INCREASING_REPLAY_SIZE] [--replay_size REPLAY_SIZE] [--seed SEED] [--cuda CUDA] [--debug]
-```
-
+### Continual learning experiments

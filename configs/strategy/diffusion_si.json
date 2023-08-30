@@ -1,0 +1,8 @@
+{
+    "strategy": "si",
+    "train_batch_size": 128,
+    "eval_batch_size": 128,
+    "epochs": 100,
+    "si_lambda": 1.0,
+    "eps": 0.0000001
+}

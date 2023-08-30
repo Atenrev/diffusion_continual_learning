@@ -1,0 +1,6 @@
+{
+    "strategy": "cumulative",
+    "train_batch_size": 128,
+    "eval_batch_size": 256,
+    "epochs": 20
+}

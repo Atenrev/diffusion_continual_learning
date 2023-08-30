@@ -1,0 +1,6 @@
+{
+    "strategy": "er",
+    "train_batch_size": 128,
+    "eval_batch_size": 128,
+    "epochs": 100
+}

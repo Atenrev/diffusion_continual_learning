@@ -1,0 +1,8 @@
+{
+    "strategy": "lwf",
+    "train_batch_size": 128,
+    "eval_batch_size": 256,
+    "epochs": 20,
+    "lwf_alpha": [0, 0.5, 1.33333, 2.25, 3.2],
+    "lwf_temperature": 2.0
+}

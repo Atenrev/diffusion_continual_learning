@@ -33,7 +33,7 @@ from src.trackers.csv_tracker import CSVTracker
 
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    # 28 for vae, 32 for unet
+
     parser.add_argument("--image_size", type=int, default=32)
     parser.add_argument("--channels", type=int, default=1)
 
@@ -41,11 +41,11 @@ def __parse_args() -> argparse.Namespace:
 
     parser.add_argument("--model_config_path", type=str,
                         default="configs/model/ddim_medium.json")
-    parser.add_argument("--training_type", type=str, default="diffusion",
+    parser.add_argument("--training_type", type=str, default="evaluate",
                         help="Type of training to use (evaluate, diffusion, generative)")
     parser.add_argument("--distillation_type", type=str, default=None,
                         help="Type of distillation to use (gaussian, gaussian_symmetry, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/best_model",
+    parser.add_argument("--teacher_path", type=str, default="results_fuji/smasipca/iid_results/comparison/diffusion/no_distillation/ddim_medium_mse_teacher_20_eta_0.0/69/last_model",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (smooth_l1, mse, min_snr)")

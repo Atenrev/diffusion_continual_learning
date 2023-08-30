@@ -2,12 +2,12 @@ import os
 import argparse
 import torch
 import torch.optim.lr_scheduler
-import datetime
 
 from torchvision import transforms
 from diffusers import UNet2DModel, DDIMScheduler
 from torch.nn import CrossEntropyLoss
 
+from avalanche.training import Naive, Cumulative, Replay, EWC, SynapticIntelligence, LwF
 from avalanche.benchmarks import SplitMNIST, SplitFMNIST
 from avalanche.models import SimpleMLP
 from avalanche.evaluation.metrics import (
@@ -29,6 +29,10 @@ from src.continual_learning.strategies import (
     FullGenerationDistillationDiffusionTraining,
     PartialGenerationDistillationDiffusionTraining,
     NoDistillationDiffusionTraining,
+    NaiveDiffusionTraining,
+    CumulativeDiffusionTraining,
+    EWCDiffusionTraining,
+    SIDiffusionTraining,
     VAETraining
 )
 from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin
@@ -37,7 +41,7 @@ from src.continual_learning.metrics.loss import loss_metrics, replay_loss_metric
 from src.continual_learning.loggers import TextLogger, CSVLogger
 from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.common.utils import get_configuration
-from src.common.diffusion_utils import wrap_in_pipeline, evaluate_diffusion
+from src.common.diffusion_utils import wrap_in_pipeline, generate_diffusion_samples
 from src.models.vae import MlpVAE, VAE_loss
 from src.models.simple_cnn import SimpleCNN
 
@@ -45,12 +49,13 @@ from src.models.simple_cnn import SimpleCNN
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="split_fmnist")
+    parser.add_argument("--image_size", type=int, default=32)
 
     parser.add_argument("--generator_type", type=str, default="diffusion")
     parser.add_argument("--generator_config_path", type=str,
                         default="configs/model/ddim_medium.json")
     parser.add_argument("--generator_strategy_config_path",
-                        type=str, default="configs/strategy/diffusion_debug.json")
+                        type=str, default="configs/strategy/diffusion_ewc.json")
     
     parser.add_argument("--lambd", type=float, default=1.0)
     parser.add_argument("--generation_steps", type=int, default=10) # Used in the solver strategy
@@ -62,7 +67,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--solver_strategy_config_path", type=str,
                         default="configs/strategy/cnn_w_diffusion_debug.json")
 
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=-1)
     parser.add_argument(
         "--cuda",
         type=int,
@@ -262,6 +267,72 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
                 replay_start_timestep=strategy_config.replay_start_timestep,
                 weight_replay_loss=strategy_config.weight_replay_loss,
             )
+        elif strategy_config.strategy == "naive":
+            generator_strategy = NaiveDiffusionTraining(
+                generator_model,
+                noise_scheduler,
+                torch.optim.Adam(generator_model.parameters(),
+                                lr=model_config.optimizer.lr),
+                train_mb_size=strategy_config.train_batch_size,
+                train_epochs=strategy_config.epochs,
+                eval_mb_size=strategy_config.eval_batch_size,
+                device=device,
+                evaluator=gen_eval_plugin,
+                train_timesteps=model_config.scheduler.train_timesteps,
+                plugins=plugins,
+            )
+        elif strategy_config.strategy == "cumulative":
+            generator_strategy = CumulativeDiffusionTraining(
+                generator_model,
+                noise_scheduler,
+                torch.optim.Adam(generator_model.parameters(),
+                                lr=model_config.optimizer.lr),
+                train_mb_size=strategy_config.train_batch_size,
+                train_epochs=strategy_config.epochs,
+                eval_mb_size=strategy_config.eval_batch_size,
+                device=device,
+                evaluator=gen_eval_plugin,
+                train_timesteps=model_config.scheduler.train_timesteps,
+                plugins=plugins,
+            )
+        elif strategy_config.strategy == "ewc":
+            raise NotImplementedError("EWC is not implemented for diffusion models yet")
+            generator_strategy = EWCDiffusionTraining(
+                ewc_lambda=strategy_config.ewc_lambda,
+                mode=strategy_config.mode,
+                decay_factor=strategy_config.decay_factor,
+                keep_importance_data=strategy_config.keep_importance_data,
+                model=generator_model,
+                scheduler=noise_scheduler,
+                optimizer=torch.optim.Adam(generator_model.parameters(),
+                                lr=model_config.optimizer.lr),
+                train_mb_size=strategy_config.train_batch_size,
+                train_epochs=strategy_config.epochs,
+                eval_mb_size=strategy_config.eval_batch_size,
+                device=device,
+                evaluator=gen_eval_plugin,
+                train_timesteps=model_config.scheduler.train_timesteps,
+                plugins=plugins,
+            )
+        elif strategy_config.strategy == "si":
+            raise NotImplementedError("SI is not implemented for diffusion models yet")
+            generator_strategy = SIDiffusionTraining(
+                si_lambda=strategy_config.si_lambda,
+                eps=strategy_config.eps,
+                decay_factor=strategy_config.decay_factor,
+                keep_importance_data=strategy_config.keep_importance_data,
+                model=generator_model,
+                scheduler=noise_scheduler,
+                optimizer=torch.optim.Adam(generator_model.parameters(),
+                                lr=model_config.optimizer.lr),
+                train_mb_size=strategy_config.train_batch_size,
+                train_epochs=strategy_config.epochs,
+                eval_mb_size=strategy_config.eval_batch_size,
+                device=device,
+                evaluator=gen_eval_plugin,
+                train_timesteps=model_config.scheduler.train_timesteps,
+                plugins=plugins,
+            )
         else:
             raise NotImplementedError(
                 f"Strategy {strategy_config.strategy} not implemented")
@@ -334,6 +405,7 @@ def get_solver_strategy(solver_type: str, model_config, strategy_config, generat
             epoch_running=True,
             experience=True,
             stream=True,
+            trained_experience=True,
         ),
         # loss_metrics(
         #     minibatch=True,
@@ -350,21 +422,98 @@ def get_solver_strategy(solver_type: str, model_config, strategy_config, generat
     )
 
     # CREATE THE STRATEGY INSTANCE (GenerativeReplay)
-    cl_strategy = WeightedSoftGenerativeReplay(
-        model,
-        torch.optim.Adam(model.parameters(), lr=model_config.optimizer.lr),
-        CrossEntropyLoss(),
-        # Caution: the batch size is doubled because of the replay
-        train_mb_size=strategy_config.train_batch_size,
-        train_epochs=strategy_config.epochs,
-        eval_mb_size=strategy_config.eval_batch_size,
-        device=device,
-        plugins=plugins,
-        evaluator=eval_plugin,
-        generator_strategy=generator_strategy,
-        increasing_replay_size=strategy_config.increasing_replay_size,
-        replay_size=strategy_config.replay_size,
-    )
+    if "strategy" in strategy_config and strategy_config.strategy == "naive":
+        cl_strategy = Naive(
+            model,
+            torch.optim.Adam(model.parameters(), lr=model_config.optimizer.lr),
+            CrossEntropyLoss(),
+            train_mb_size=strategy_config.train_batch_size,
+            train_epochs=strategy_config.epochs,
+            eval_mb_size=strategy_config.eval_batch_size,
+            device=device,
+            evaluator=eval_plugin,
+        )
+    elif "strategy" in strategy_config and strategy_config.strategy == "cumulative":
+        cl_strategy = Cumulative(
+            model,
+            torch.optim.Adam(model.parameters(), lr=model_config.optimizer.lr),
+            CrossEntropyLoss(),
+            train_mb_size=strategy_config.train_batch_size,
+            train_epochs=strategy_config.epochs,
+            eval_mb_size=strategy_config.eval_batch_size,
+            device=device,
+            evaluator=eval_plugin,
+        )
+    elif "strategy" in strategy_config and strategy_config.strategy == "er":
+        cl_strategy = Replay(
+            model,
+            torch.optim.Adam(model.parameters(), lr=model_config.optimizer.lr),
+            CrossEntropyLoss(),
+            train_mb_size=strategy_config.train_batch_size,
+            train_epochs=strategy_config.epochs,
+            eval_mb_size=strategy_config.eval_batch_size,
+            device=device,
+            evaluator=eval_plugin,
+            mem_size=strategy_config.replay_size,
+        )
+    elif "strategy" in strategy_config and strategy_config.strategy == "ewc":
+        cl_strategy = EWC(
+            model,
+            torch.optim.Adam(model.parameters(), lr=model_config.optimizer.lr),
+            CrossEntropyLoss(),
+            ewc_lambda=strategy_config.ewc_lambda,
+            mode=strategy_config.mode,
+            decay_factor=strategy_config.decay_factor,
+            keep_importance_data=strategy_config.keep_importance_data,
+            train_mb_size=strategy_config.train_batch_size,
+            train_epochs=strategy_config.epochs,
+            eval_mb_size=strategy_config.eval_batch_size,
+            device=device,
+            evaluator=eval_plugin,
+        )
+    elif "strategy" in strategy_config and strategy_config.strategy == "si":
+        cl_strategy = SynapticIntelligence(
+            model,
+            torch.optim.Adam(model.parameters(), lr=model_config.optimizer.lr),
+            CrossEntropyLoss(),
+            si_lambda=strategy_config.si_lambda,
+            eps=strategy_config.eps,
+            train_mb_size=strategy_config.train_batch_size,
+            train_epochs=strategy_config.epochs,
+            eval_mb_size=strategy_config.eval_batch_size,
+            device=device,
+            evaluator=eval_plugin,
+        )
+    elif "strategy" in strategy_config and strategy_config.strategy == "lwf":
+        cl_strategy = LwF(
+            model,
+            torch.optim.Adam(model.parameters(), lr=model_config.optimizer.lr),
+            CrossEntropyLoss(),
+            alpha=strategy_config.lwf_alpha,
+            temperature=strategy_config.lwf_temperature,
+            train_mb_size=strategy_config.train_batch_size,
+            train_epochs=strategy_config.epochs,
+            eval_mb_size=strategy_config.eval_batch_size,
+            device=device,
+            evaluator=eval_plugin,
+        )
+    else:
+        assert generator_strategy is not None
+        cl_strategy = WeightedSoftGenerativeReplay(
+            model,
+            torch.optim.Adam(model.parameters(), lr=model_config.optimizer.lr),
+            CrossEntropyLoss(),
+            # Caution: the batch size is doubled because of the replay
+            train_mb_size=strategy_config.train_batch_size,
+            train_epochs=strategy_config.epochs,
+            eval_mb_size=strategy_config.eval_batch_size,
+            device=device,
+            plugins=plugins,
+            evaluator=eval_plugin,
+            generator_strategy=generator_strategy,
+            increasing_replay_size=strategy_config.increasing_replay_size,
+            replay_size=strategy_config.replay_size,
+        )
 
     return cl_strategy
 
@@ -373,10 +522,28 @@ def run_experiment(args, seed: int, device: torch.device):
     # --- SEEDING
     RNGManager.set_random_seeds(seed)
     torch.backends.cudnn.deterministic = True
+    
+    run_name = "gr"
 
-    generator_config = get_configuration(args.generator_config_path)
-    generator_strategy_config = get_configuration(args.generator_strategy_config_path)
-    run_name = f"gr_{args.generator_type}_{generator_strategy_config.strategy}_steps_{args.generation_steps}_lambd_{args.lambd}_{args.solver_type}/{seed}"
+    if args.generator_type is not None and args.generator_type != "None":
+        generator_config = get_configuration(args.generator_config_path)
+        generator_strategy_config = get_configuration(args.generator_strategy_config_path)
+        run_name += f"_{args.generator_type}_{generator_strategy_config.strategy}_steps_{args.generation_steps}_lambd_{args.lambd}"
+    else: 
+        generator_config = None
+        generator_strategy_config = None
+
+    if args.solver_type is not None and args.solver_type != "None":
+        solver_config = get_configuration(args.solver_config_path)
+        solver_strategy_config = get_configuration(args.solver_strategy_config_path)
+        run_name += f"_{args.solver_type}"
+        if "strategy" in solver_strategy_config:
+            run_name += f"_{solver_strategy_config.strategy}"
+    else:
+        solver_config = None
+        solver_strategy_config = None
+    
+    run_name += f"/{seed}"
     # run_name += f"_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
     output_dir = os.path.join(args.output_dir, args.dataset, run_name)
@@ -384,9 +551,13 @@ def run_experiment(args, seed: int, device: torch.device):
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "log.txt")
+
+    if os.path.exists(os.path.join(output_dir, "completed.txt")):
+        print(f"Experiment with seed {seed} already completed")
+        return
     
     # --- BENCHMARK CREATION
-    image_size = generator_config.model.input_size
+    image_size = args.image_size
     benchmark = get_benchmark(image_size, seed)
 
     # --- LOGGER CREATION
@@ -400,10 +571,9 @@ def run_experiment(args, seed: int, device: torch.device):
             "args": vars(args),
             "generator_config": generator_config,
             "generator_strategy_config": generator_strategy_config,
+            "solver_config": solver_config,
+            "solver_strategy_config": solver_strategy_config,
         }
-        if args.solver_type is not None:
-            all_configs["solver_config"] = get_configuration(args.solver_config_path)
-            all_configs["solver_strategy_config"] = get_configuration(args.solver_strategy_config_path)
         loggers.append(WandBLogger(
             project_name=args.project_name,
             run_name=run_name,
@@ -429,30 +599,35 @@ def run_experiment(args, seed: int, device: torch.device):
         generator_strategy = strategy.generator_strategy
     else:
         # --- STRATEGY CREATION
-        generator_strategy = get_generator_strategy(
-            args.generator_type,
-            generator_config,
-            generator_strategy_config,
-            loggers,
-            device,
-            generation_steps=args.generation_steps,
-            eta=args.eta,
-            checkpoint_plugin=checkpoint_plugin if args.solver_type is None else None,
-            lambd=args.lambd,
-        )
+        if args.generator_type is None or args.generator_type == "None":
+            generator_strategy = None  
+        else:
+            generator_strategy = get_generator_strategy(
+                args.generator_type,
+                generator_config,
+                generator_strategy_config,
+                loggers,
+                device,
+                generation_steps=args.generation_steps,
+                eta=args.eta,
+                checkpoint_plugin=checkpoint_plugin if args.solver_type is None else None,
+                lambd=args.lambd,
+            )
 
-        if args.solver_type is None:
+        if args.solver_type is None or args.solver_type == "None":
             strategy = generator_strategy
         else:
             strategy = get_solver_strategy(
-                args.solver_type,
-                get_configuration(args.solver_config_path),
-                get_configuration(args.solver_strategy_config_path),
-                generator_strategy,
-                loggers,
-                device,
-                checkpoint_plugin=checkpoint_plugin,
-            )
+            args.solver_type,
+            solver_config,
+            solver_strategy_config,
+            generator_strategy,
+            loggers,
+            device,
+            checkpoint_plugin=checkpoint_plugin,
+        )      
+
+        assert strategy is not None 
 
     # TRAINING LOOP
     print("Starting experiment...")
@@ -462,22 +637,24 @@ def run_experiment(args, seed: int, device: torch.device):
         strategy.train(experience)
         print("Training completed")
 
-        if args.solver_type is not None:
-            print("Computing diffusion metrics on the whole test set")
+        print("Computing metrics on the whole test set")
+        if args.solver_type is not None and args.solver_type != "None" and generator_strategy is not None:
             generator_strategy.eval(benchmark.test_stream)
 
-        print("Computing accuracy on the whole test set")
         strategy.eval(benchmark.test_stream)
 
-        print("Computing generated samples and saving them to disk")
-        evaluate_diffusion(output_dir, n_samples, experience.current_experience,
-                           generator_strategy.model, seed=args.seed, generation_steps=args.generation_steps, eta=args.eta)
-        
-        # if experience.current_experience > 0:
-        #     evaluate_diffusion(output_dir + "/old", n_samples, experience.current_experience,
-        #                        generator_strategy.old_model, seed=args.seed, generation_steps=args.generation_steps, eta=args.eta)
+        if generator_strategy is not None:
+            print("Computing generated samples and saving them to disk")
+            generate_diffusion_samples(output_dir, n_samples, experience.current_experience,
+                            generator_strategy.model, seed=args.seed, generation_steps=args.generation_steps, eta=args.eta)
 
     print("Evaluation completed")
+
+    with open(os.path.join(output_dir, "completed.txt"), "w") as f:
+        f.write(":)")
+
+    # Remove checkpoints
+    os.system(f"rm -rf {os.path.join(output_dir, 'checkpoints')}")
 
 
 def main(args):
@@ -491,7 +668,7 @@ def main(args):
         run_experiment(args, args.seed, device)
     else:
         assert not args.wandb, "wandb logging is not supported for multiple seeds"
-        for seed in [42, 69, 420, 666, 1714]:
+        for seed in [42, 69, 1714]:
             run_experiment(args, seed, device)
 
 
