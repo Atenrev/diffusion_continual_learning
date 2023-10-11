@@ -9,6 +9,11 @@ from torch.optim import Adam
 from torchvision import transforms
 from diffusers import UNet2DModel, DDIMScheduler
 
+import sys
+from pathlib import Path
+# This script should be run from the root of the project
+sys.path.append(str(Path(__file__).parent.parent))
+
 from src.datasets.fashion_mnist import create_dataloader as create_fashion_mnist_dataloader
 from src.datasets.mnist import create_dataloader as create_mnist_dataloader
 from src.common.utils import get_configuration
@@ -43,7 +48,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (mse, min_snr)")
 
-    parser.add_argument("--generation_steps", type=int, default=20) # Not used for evaluation
+    parser.add_argument("--generation_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
     parser.add_argument("--teacher_eta", type=float, default=0.0)
 

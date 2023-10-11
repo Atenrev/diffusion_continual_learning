@@ -50,13 +50,13 @@ def plot_bar(x, y, x_label, y_label, title, save_path, color='skyblue', y_labels
     plt.close()
 
 
-def plot_line_graph(x, y, x_label, y_label, title, save_path, color='skyblue', log_x=False, x_ticks=None, second_x=None, second_x_label=None, size=(12, 8)):
+def plot_line_graph(x, y, x_label, y_label, title, save_path, color='skyblue', log_x=False, x_ticks=None, second_x=None, second_x_label=None, y_lim=None, size=(8, 6)):
     # Set up the figure and axis
     fig, ax = plt.subplots()
     fig.set_size_inches(size[0], size[1])
 
-    # Plotting the line graph
-    ax.plot(x, y, marker='o', linestyle='-', color=color)
+    # Plotting the line graph with small markers
+    ax.plot(x, y, marker='o', linestyle='-', color=color, markersize=3)
 
     # Setting the x-axis scale
     if log_x:
@@ -68,6 +68,10 @@ def plot_line_graph(x, y, x_label, y_label, title, save_path, color='skyblue', l
     if x_ticks is not None:
         ax.set_xticks(x_ticks)
         ax.set_xticklabels(x_ticks)
+
+    # Setting the y-axis scale
+    if y_lim is not None:
+        ax.set_ylim(y_lim[0], y_lim[1])
 
     # Adding labels and title
     ax.set_xlabel(x_label)
@@ -86,13 +90,11 @@ def plot_line_graph(x, y, x_label, y_label, title, save_path, color='skyblue', l
         ax2.spines['top'].set_visible(False)
         ax2.spines['right'].set_visible(False)
 
-    # Save the graph to disk
-    plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
 
 
-def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, colors=None, log_x=False, x_ticks=None, y_labels=None, y_lim=None, size=(12, 8)):
+def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, colors=None, log_x=False, x_ticks=None, x_labels=None, y_labels=None, y_lim=None, size=(12, 8), annotate_last=False):
     # Set up the figure and axis
     fig, ax = plt.subplots()
     # Make figure larger
@@ -117,7 +119,7 @@ def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, colors=No
 
     for i, y_vals in enumerate(y):
         color = colors[i]
-        if y_labels is not None:
+        if y_labels is not None and not annotate_last:
             label = y_labels[i]
         else:
             label = None
@@ -125,16 +127,32 @@ def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, colors=No
         ax.plot(x[i], y_vals, linestyle='-', color=color, label=label)
         ax.fill_between(x[i], y_vals - std[i], y_vals + std[i], color=color, alpha=0.2)
 
+    if annotate_last and y_labels is not None:
+        y_arr = np.array(y)[:,-1]
+        # Order the labels by the last value
+        y_labels = [y_labels[i] for i in np.argsort(y_arr)]
+        colors = [colors[i] for i in np.argsort(y_arr)]
+        offset = 0.1 * y_lim[1]
+        
+        # Annotate the labels in order
+        for i in range(len(y_labels)):
+            y_val = offset * i + offset
+            ax.annotate(y_labels[i], xy=(x[i][-1], y_val), xytext=(x[i][-1]+0.25, y_val), va='center', color=colors[i], weight='bold')
+
     # Setting the x-axis scale
     if log_x:
         ax.set_xscale('log')
-        ax.set_xticks(x)
+        ax.set_xticks(x[0])
         ax.get_xaxis().set_major_formatter(plt.ScalarFormatter())
 
     # Setting the x-axis tick positions and labels
     if x_ticks is not None:
-        ax.set_xticks(np.arange(0, len(x_ticks)))
-        ax.set_xticklabels(x_ticks)
+        if x_labels is None:
+            ax.set_xticks(np.arange(0, len(x_ticks)))
+            ax.set_xticklabels(x_ticks)
+        else:
+            ax.set_xticks(x_ticks)
+            ax.set_xticklabels(x_labels)
 
     # Setting the y-axis scale
     if y_lim is not None:
@@ -144,7 +162,7 @@ def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, colors=No
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title(title)
-    if y_labels is not None:
+    if y_labels is not None and not annotate_last:
         ax.legend()
 
     # Adjusting the appearance
@@ -152,6 +170,6 @@ def plot_line_std_graph(x, y, std, x_label, y_label, title, save_path, colors=No
     ax.spines['right'].set_visible(False)
 
     # Save the graph to disk
-    plt.tight_layout()
+    # plt.tight_layout()
     plt.savefig(save_path)
     plt.close()

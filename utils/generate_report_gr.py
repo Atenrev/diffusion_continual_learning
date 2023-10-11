@@ -5,8 +5,14 @@ import numpy as np
 import argparse
 import regex as re
 import torch
+import matplotlib 
 
 from typing import Union, List
+
+import sys
+from pathlib import Path
+# This script should be run from the root of the project
+sys.path.append(str(Path(__file__).parent.parent))
 
 from src.common.visual import plot_line_std_graph, plot_bar
 
@@ -14,22 +20,23 @@ from src.common.visual import plot_line_std_graph, plot_bar
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()    
     parser.add_argument("--experiments_path", type=str, 
-                        default="results_fuji/smasipca/generative_replay_gensteps/split_fmnist/")
+                        default="results_fuji/smasipca/generative_replay/split_fmnist/")
     parser.add_argument("--only_average", action='store_true', default=True)
     parser.add_argument("--filter_condition", type=Union[str, List[str]], 
-                        # default=[
-                        #     "gr_cnn_naive",
-                        #     "gr_cnn_cumulative",
-                        #     "gr_diffusion_naive",
-                        #     "gr_diffusion_cumulative",
-                        #     "diffusion_no_distillation",
-                        #     "lwf_distillation_steps_10_lambd_0.25_cnn", 
-                        #     "full_generation_distillation_steps_10_lambd_3.0_cnn", 
-                        #     "partial_generation_distillation_steps_10_lambd_5.0_cnn", 
-                        #     "gaussian_distillation_steps_10_lambd_24.0_cnn", 
-                        #     "gaussian_symmetry_distillation_steps_10_lambd_12.0_cnn"
-                        #     ])
-                        default=["lambd_3"])
+                        default=[
+                            "gr_cnn_naive",
+                            "gr_cnn_cumulative",
+                            "gr_diffusion_naive",
+                            "gr_diffusion_cumulative",
+                            # "diffusion_no_distillation_steps_10,_teacher_DDIM_steps_2",
+                            "diffusion_no_distillation",
+                            "lwf_distillation_steps_10_lambd_0.25_cnn", 
+                            "full_generation_distillation_steps_10_lambd_3.0_cnn", 
+                            # "partial_generation_distillation_steps_10_lambd_5.0_cnn", 
+                            "gaussian_distillation_steps_10_lambd_24.0_cnn", 
+                            # "gaussian_symmetry_distillation_steps_10_lambd_12.0_cnn"
+                            ])
+                        # default=["steps_20"])
     return parser.parse_args()
 
 
@@ -40,13 +47,40 @@ def format_experiment_name(experiment_name: str) -> str:
         experiment_name = "Joint (classifier)"
     elif "gr_diffusion_naive" in experiment_name:
         experiment_name = "Finetune (generator)"
-    elif"gr_diffusion_cumulative" in experiment_name:
+    elif "gr_diffusion_cumulative" in experiment_name:
         experiment_name = "Joint (generator)"
     else:
         experiment_name = experiment_name.replace("gr_diffusion_", "").replace("_cnn", "").replace('_', ' ').replace(' lambd ', ', lambda=') # .replace("_steps_10", "", 1)
         experiment_name = ' '.join([word for word in experiment_name.split()])
 
     return experiment_name
+
+
+def get_short_name(experiment_name: str) -> str:
+    if "gr_cnn_naive" in experiment_name:
+        experiment_name = "Naive"
+    elif "gr_cnn_cumulative" in experiment_name:
+        experiment_name = "Joint"
+    elif "gr_diffusion_naive" in experiment_name:
+        experiment_name = "Naive"
+    elif "gr_diffusion_cumulative" in experiment_name:
+        experiment_name = "Joint"
+    elif "full_generation" in experiment_name:
+        experiment_name = "GD"
+    elif "partial_generation" in experiment_name:
+        experiment_name = "PGD"
+    elif "gaussian_distillation" in experiment_name:
+        experiment_name = "GGD"
+    elif "gaussian_symmetry" in experiment_name:
+        experiment_name = "GGSD"
+    elif "lwf" in experiment_name:
+        experiment_name = "LwF"
+    elif "no_distillation" in experiment_name:
+        steps = re.findall(r'\d+', experiment_name)[1]
+        experiment_name = f"GR({steps})"
+
+    return experiment_name
+
 
 def plot_metrics(experiment_path: str):
     metrics = {}
@@ -126,7 +160,7 @@ def plot_metrics(experiment_path: str):
             else:
                 means = values_list
                 stds = np.zeros_like(means)
-            output_path = os.path.join(experiment_path, f"{metric}.png")
+            output_path = os.path.join(experiment_path, f"{metric}.pgf")
             y_lim = None
             if metric == 'avg FID':
                 y_lim = (0, 100)
@@ -136,21 +170,21 @@ def plot_metrics(experiment_path: str):
                 y_lim = (0, max_kld + 0.2)
             elif metric == 'avg ACC' or metric == 'avg FORGETTING':
                 y_lim = (0, 1)
-            plot_line_std_graph(x, means, stds, 'Task', metric, title, output_path, x_ticks=x, y_lim=y_lim)
+            plot_line_std_graph(x, means, stds, 'Task', metric, title, output_path, x_ticks=x, y_lim=y_lim, size=(3, 2))
         else:
             x = ["T-shirt/top", "Trouser", "Pullover", "Dress", "Coat", "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot"]
 
             if values_list.ndim == 4:
                 for seed in range(values_list.shape[0]):
                     for i in range(values_list.shape[1]):
-                        output_path = os.path.join(experiment_path, f"{metric}_exp_{i}_seed_{seed}.png")
-                        plot_bar(x, values_list[seed, i, :], 'Class', 'Frequency', title, output_path, y_labels=('True', 'Predicted'))
+                        output_path = os.path.join(experiment_path, f"{metric}_exp_{i}_seed_{seed}.pgf")
+                        plot_bar(x, values_list[seed, i, :], 'Class', 'Frequency', title, output_path, y_labels=('True', 'Predicted'), size=(3, 2))
             else:
                 means = values_list
 
                 for i in range(means.shape[0]):
-                    output_path = os.path.join(experiment_path, f"{metric}_exp_{i}.png")
-                    plot_bar(x, means[i, :], 'Class', 'Frequency', title, output_path, y_labels=('True', 'Predicted'))
+                    output_path = os.path.join(experiment_path, f"{metric}_exp_{i}.pgf")
+                    plot_bar(x, means[i, :], 'Class', 'Frequency', title, output_path, y_labels=('True', 'Predicted'), size=(3, 2))
 
 
 def create_comparison_histogram(experiments_path: str, filter_condition: Union[str, List[str]] = ""):
@@ -220,8 +254,8 @@ def create_comparison_histogram(experiments_path: str, filter_condition: Union[s
     y_labels = ["True"] + experiment_names
     
     for i, metric in enumerate(metrics):
-        output_path = os.path.join(experiments_path, f"comparison_hist_exp_{i}.png")
-        plot_bar(x, metric, 'Class', 'Frequency', title, output_path, y_labels=y_labels)
+        output_path = os.path.join(experiments_path, f"comparison_hist_exp_{i}.pgf")
+        plot_bar(x, metric, 'Class', 'Frequency', title, output_path, y_labels=y_labels, size=(6, 2.5))
 
 
 def create_summary(experiment_path: str):
@@ -428,8 +462,8 @@ def create_table(experiment_path: str, metrics: dict, only_average: bool = False
     final_table = f"""
 \\begin{{table}}[]
     \centering
-    {final_table}
     \caption{{Caption}}
+    {final_table}
     \label{{tab:my_label}}
 \end{{table}}
 """
@@ -448,7 +482,7 @@ def create_comparison_plots(experiments_path: str, metrics: dict, filter_conditi
             format: {experiment_name: {metric: {mean: float, std: float}, ...}, ...}
     """
     experiment_names = list(metrics.keys())
-    experiment_names = sorted(experiment_names, key=lambda x: [int(i) for i in re.findall(r'\d+', x)] if re.findall(r'\d+', x) else x)
+    # experiment_names = sorted(experiment_names, key=lambda x: [int(i) for i in re.findall(r'\d+', x)] if re.findall(r'\d+', x) else x)
     experiment_names = sorted(experiment_names, key=lambda x: 0 if "cumulative" in x or "naive" in x else 1 if "no_distillation" in x else 2 if "lwf" in x else 3 if "partial_generation" in x else 4 if "full_generation" in x else 5 if "gaussian_distillation" in x else 6 if "gaussian_symmetry" in x else 7)
     metric_names = list(set(sum([list(metrics[en].keys()) for en in experiment_names], [])))
     metric_names = [metric_name for metric_name in metric_names if 'stream' in metric_name]
@@ -486,14 +520,14 @@ def create_comparison_plots(experiments_path: str, metrics: dict, filter_conditi
         if isinstance(filter_condition, list):
             filter_condition = "comparison"
 
-        output_path = os.path.join(experiments_path, f"stream_{metric_name}_{filter_condition}.png")
+        output_path = os.path.join(experiments_path, f"stream_{metric_name}_{filter_condition}.pgf")
         metric_name = f"avg {metric_name.upper()}"
         y_labels = []
 
         for experiment_name in experiment_names:
             if experiment_name in experiments_wo_metric:
                 continue
-            experiment_name = format_experiment_name(experiment_name)
+            experiment_name = get_short_name(experiment_name)
             y_labels.append(experiment_name)
 
         y_lim = None
@@ -503,20 +537,29 @@ def create_comparison_plots(experiments_path: str, metrics: dict, filter_conditi
         elif metric_name == 'avg KLD':
             max_idx = np.argmax(all_experiment_means)
             max_kld = all_experiment_means.flatten()[max_idx] + all_experiment_sems.flatten()[max_idx]
-            y_lim = (0, max_kld + 0.2)
+            y_lim = (0, 4)
         elif metric_name == 'avg ACC' or metric_name == 'avg FORGETTING':
             y_lim = (0, 1)
-
-        plot_line_std_graph(x, all_experiment_means, all_experiment_sems, 'Task', metric_name, f"Comparison - {metric_name}", output_path, x_ticks=x, y_labels=y_labels, y_lim=y_lim)
+        metric_name = metric_name.replace('avg ', '')
+        plot_line_std_graph(x, all_experiment_means, all_experiment_sems, 'Task', metric_name, None, output_path, x_ticks=x+1, y_labels=y_labels, y_lim=y_lim, size=(3, 1.7), annotate_last=True)
 
 
 if __name__ == '__main__':
+    matplotlib.use("pgf")
+    matplotlib.rcParams.update({
+        "pgf.texsystem": "pdflatex",
+        'font.family': 'serif',
+        'font.size': 8,
+        'text.usetex': True,
+        'pgf.rcfonts': False,
+        'figure.autolayout': True,
+    })
     args = __parse_args()
     filter_conditions = args.filter_condition
     if isinstance(filter_conditions, str):
         filter_conditions = [filter_conditions]
 
-    create_comparison_histogram(args.experiments_path, args.filter_condition)
+    # create_comparison_histogram(args.experiments_path, args.filter_condition)
 
     all_experiments_results = {}
     # Iterate the experiments path and plot the metrics for each experiment
@@ -532,8 +575,8 @@ if __name__ == '__main__':
         if not os.path.isdir(experiment_path):
             continue
         
-        print(f"Plotting metrics for {root_experiment}...")
-        plot_metrics(experiment_path)
+        # print(f"Plotting metrics for {root_experiment}...")
+        # plot_metrics(experiment_path)
         print(f"Creating summary for {root_experiment}...")
         _, _, _, _, metrics_mean_std = create_summary(experiment_path)
         experiment_name = root_experiment

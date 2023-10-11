@@ -55,7 +55,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--generator_config_path", type=str,
                         default="configs/model/ddim_medium.json")
     parser.add_argument("--generator_strategy_config_path",
-                        type=str, default="configs/strategy/diffusion_ewc.json")
+                        type=str, default="configs/strategy/diffusion_debug.json")
     
     parser.add_argument("--lambd", type=float, default=1.0)
     parser.add_argument("--generation_steps", type=int, default=10) # Used in the solver strategy
@@ -71,7 +71,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cuda",
         type=int,
-        default=0,
+        default=-1,
         help="Select zero-indexed cuda device. -1 to use CPU.",
     )
     parser.add_argument("--output_dir", type=str,
@@ -155,7 +155,7 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
                 experience=True,
                 stream=True,
             ),
-            DiffusionMetricsMetric(),
+            DiffusionMetricsMetric(device=device),
             loggers=loggers,
         )
 
@@ -353,7 +353,7 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
             betas=(0.9, 0.999),
         )
         gen_eval_plugin = EvaluationPlugin(
-            DiffusionMetricsMetric(),
+            DiffusionMetricsMetric(device=device),
             loggers=loggers,
         )
         plugins.append(UpdatedGenerativeReplayPlugin(
@@ -407,17 +407,7 @@ def get_solver_strategy(solver_type: str, model_config, strategy_config, generat
             stream=True,
             trained_experience=True,
         ),
-        # loss_metrics(
-        #     minibatch=True,
-        #     epoch=True,
-        #     epoch_running=True,
-        #     experience=True,
-        #     stream=True,
-        # ),
         forgetting_metrics(experience=True, stream=True),
-        # confusion_matrix_metrics(
-        #     stream=True, wandb=True, class_names=[str(i) for i in range(10)]
-        # ),
         loggers=loggers,
     )
 

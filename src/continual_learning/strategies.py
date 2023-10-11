@@ -171,7 +171,7 @@ class WeightedSoftGenerativeReplay(SupervisedTemplate):
 
 def get_default_generator_logger():
     return EvaluationPlugin(
-        [DiffusionMetricsMetric()],
+        # [DiffusionMetricsMetric()],
         loggers=[InteractiveLogger()]
     )
 

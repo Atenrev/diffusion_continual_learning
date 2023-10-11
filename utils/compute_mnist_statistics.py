@@ -7,7 +7,12 @@ from tqdm import tqdm
 from typing import Any
 import torch.nn as nn
 from torchvision import transforms
-from torchvision.models import resnet18, efficientnet_b0
+from torchvision.models import resnet18
+
+import sys
+from pathlib import Path
+# This script should be run from the root of the project
+sys.path.append(str(Path(__file__).parent.parent))
 
 # from src.models.simple_cnn import SimpleCNN
 from src.common.utils import get_configuration
@@ -52,7 +57,6 @@ def __parse_args() -> argparse.Namespace:
 
 def main(args):
     device = args.device
-    model_config = get_configuration(args.model_config_path)
     classifier = resnet18()
     classifier.fc = nn.Linear(classifier.fc.in_features, 10)
     print("Loading model from disk")
@@ -60,24 +64,12 @@ def main(args):
     classifier.to(device)
     classifier.eval()
 
-    # evaluator_classifier = SimpleCNN(
-    #     n_channels=model_config.model.channels,
-    #     num_classes=model_config.model.n_classes
-    # ).to(device)
-    # evaluator_classifier = resnet18(num_classes=10).to(device)
-    # evaluator_optimizer = torch.optim.Adam(
-    #     evaluator_classifier.parameters(),
-    #     lr=model_config.optimizer.lr,
-    # )
-    # criterion = torch.nn.CrossEntropyLoss()
-
     _, test_loader = create_dataloader(args.classifier_batch_size, preprocess)
 
     samples_per_class = {i: 0 for i in range(10)}
     for batch in test_loader:
         with torch.no_grad():
             batch_data = batch["pixel_values"].to(device)
-            batch_labels = batch["label"].to(device)
             pred = classifier(batch_data)
             classes = torch.nn.functional.softmax(pred, dim=1)
             classes = torch.argmax(classes, dim=1)
@@ -137,40 +129,6 @@ def main(args):
 
         for c in classes_np:
             samples_per_class[c] += 1
-
-    #     evaluator_optimizer.zero_grad()
-    #     preds = evaluator_classifier(generated_samples)
-    #     loss_evaluator = criterion(preds, classes)
-    #     loss_evaluator.backward()
-    #     evaluator_optimizer.step()
-    #     pbar.set_description(
-    #         f"Loss: {loss_evaluator.item():.4f}, Accuracy: {(preds.argmax(dim=1) == classes).float().mean().item():.4f}")
-
-    #     if it % 50 == 0 and it > 0:
-    #         print("Evaluating model")
-    #         evaluator_classifier.eval()
-    #         accuracy_list = []
-    #         for batch in test_loader:
-    #             with torch.no_grad():
-    #                 batch_data = batch["pixel_values"].to(device)
-    #                 batch_labels = batch["label"].to(device)
-    #                 pred = evaluator_classifier(batch_data)
-    #                 accuracy = (pred.argmax(dim=1) == batch_labels).float().mean()
-    #                 accuracy_list.append(accuracy.item())
-    #         print(f"Accuracy: {sum(accuracy_list) / len(accuracy_list)}")
-    #         evaluator_classifier.train()
-
-    # print("Evaluating model")
-    # evaluator_classifier.eval()
-    # accuracy_list = []
-    # for batch in test_loader:
-    #     with torch.no_grad():
-    #         batch_data = batch["pixel_values"].to(device)
-    #         batch_labels = batch["label"].to(device)
-    #         pred = evaluator_classifier(batch_data)
-    #         accuracy = (pred.argmax(dim=1) == batch_labels).float().mean()
-    #         accuracy_list.append(accuracy.item())
-    # print(f"Accuracy: {sum(accuracy_list) / len(accuracy_list)}")
 
     # Compute entropy
     n_samples = sum(samples_per_class.values())

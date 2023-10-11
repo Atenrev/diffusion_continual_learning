@@ -9,9 +9,7 @@ from tqdm import tqdm
 from torchvision.datasets import FashionMNIST
 from torch.utils.data import DataLoader
 from torchvision.models import resnet18
-from src.models.simple_cnn import SimpleCNN
 
-# Train with mixup
 class AddGaussianNoise(object):
     def __init__(self, mean=0., std=1.):
         self.std = std
@@ -26,7 +24,6 @@ class AddGaussianNoise(object):
 
 def get_data_loaders(batch_size=64):
     transform_train = transforms.Compose([
-        # transforms.RandomResizedCrop(32),
         transforms.Resize(32),
         transforms.RandomHorizontalFlip(),
         transforms.RandomRotation(10),
@@ -58,12 +55,6 @@ def get_data_loaders(batch_size=64):
 def get_model(num_classes=10):
     model = resnet18(pretrained='imagenet') 
     model.fc = nn.Linear(model.fc.in_features, num_classes)
-    # model = SimpleCNN(num_classes=num_classes)
-    # model = mobilenet_v3_large(pretrained=True)
-    # model.classifier = nn.Sequential(
-    #     nn.Dropout(p=0.2, inplace=False),
-    #     nn.Linear(in_features=model.classifier[0].in_features, out_features=num_classes, bias=True)
-    # )
     return model
 
 
@@ -146,6 +137,7 @@ def main():
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs for training')
     parser.add_argument('--learning_rate', type=float, default=0.0005, help='Learning rate for the optimizer')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use for training (cuda or cpu)')
+    parser.add_argument('--output_path', type=str, default='./results/cnn_fmnist', help='Path to save the model')
     args = parser.parse_args()
 
     train_loader, val_loader, test_loader = get_data_loaders(batch_size=args.batch_size)
@@ -153,7 +145,7 @@ def main():
     model = train_model(model, train_loader, val_loader, num_epochs=args.num_epochs,
                         learning_rate=args.learning_rate, device=args.device)
     evaluate_model(model, test_loader, device=args.device)
-    save_model(model)
+    save_model(model, save_folder=args.output_path)
 
 if __name__ == "__main__":
     main()

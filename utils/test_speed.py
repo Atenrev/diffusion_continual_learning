@@ -7,6 +7,11 @@ from tqdm import tqdm
 from torch.optim import Adam
 from diffusers import UNet2DModel, DDIMScheduler
 
+import sys
+from pathlib import Path
+# This script should be run from the root of the project
+sys.path.append(str(Path(__file__).parent.parent))
+
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline
 from src.pipelines.pipeline_ddim import DDIMPipeline
@@ -145,7 +150,8 @@ def test_generation_no_distillation_speed(args, model, teacher, scheduler, optim
 
 
 def main(args):
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    assert torch.cuda.is_available()
+    device = "cuda"
     model_config = get_configuration(args.model_config_path)
     model = UNet2DModel(
             sample_size=model_config.model.input_size,

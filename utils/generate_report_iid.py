@@ -5,8 +5,14 @@ import numpy as np
 import argparse
 import regex as re
 import torch
+import matplotlib 
 
 from diffusers import DDIMScheduler
+
+import sys
+from pathlib import Path
+# This script should be run from the root of the project
+sys.path.append(str(Path(__file__).parent.parent))
 
 from src.common.visual import plot_line_std_graph
 from src.pipelines.pipeline_ddim import DDIMPipeline
@@ -16,8 +22,11 @@ from src.common.diffusion_utils import wrap_in_pipeline, generate_diffusion_samp
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()    
     parser.add_argument("--experiments_path", type=str, 
-                        default="results_fuji/smasipca/iid_results/comparison/diffusion/")
-    parser.add_argument("--generate_images", action="store_true")
+                        help="Path to the folder containing the experiment folders",
+                        default="results_fuji/smasipca/iid_results/comparison_pvf/diffusion/")
+    parser.add_argument("--generate_images", 
+                        help="Generate images for the best seed of each experiment",
+                        action="store_true")
     return parser.parse_args()
 
 
@@ -254,7 +263,8 @@ def create_comparison_plots(experiments_path: str):
                 all_metrics[metric]["x"].append(np.array(x_ticks))
                 all_metrics[metric]["means"].append(means)
                 all_metrics[metric]["stds"].append(stds)
-                if "base-model" in exp_name: 
+
+                if "base_model" in exp_name: 
                     exp_name = exp_name.replace('_', ' ')
                 else:
                     exp_name = exp_name.replace('_', '-')
@@ -273,10 +283,17 @@ def create_comparison_plots(experiments_path: str):
         all_means = all_metrics[metric_name]["means"]
         all_sems = all_metrics[metric_name]["stds"] / np.sqrt(len(all_metrics[metric_name]["stds"]))
         x = all_metrics[metric_name]["x"]
-        x_ticks = np.arange(max([max(a) for a in x]) + 1) + 1
+        if "auc" not in metric_name.lower():
+            x_ticks = np.arange(max([max(a) for a in x]) + 1) + 1
+            x_labels = None
+        else:
+            # Tick every 2
+            x_ticks = np.arange(0, max([max(a) for a in x]) + 1, 2)
+            x_labels = x_ticks + 1
         y_labels = all_metrics[metric_name]["experiment_names"]
-        output_path = os.path.join(experiments_path, f"{metric_name}.png")
-        plot_line_std_graph(x, all_means, all_sems, 'Steps (in thousands)', metric_name, f"Comparison - {metric_name}", output_path, x_ticks=x_ticks, y_labels=y_labels)
+        output_path = os.path.join(experiments_path, f"{metric_name}.pgf")
+        metric_name = metric_name.replace('auc', '$FID_{auc}$')
+        plot_line_std_graph(x, all_means, all_sems, 'Steps (in thousands)', metric_name, f"Comparison - {metric_name}", output_path, x_ticks=x_ticks, x_labels=x_labels, y_labels=y_labels, size=(4.8, 2.2))
 
 
 def generate_images(experiment_path: str, best_seed: int):
@@ -300,6 +317,16 @@ def generate_images(experiment_path: str, best_seed: int):
 
 
 if __name__ == '__main__':
+    # Document text width: 7.1413 inches
+    matplotlib.use("pgf")
+    matplotlib.rcParams.update({
+        "pgf.texsystem": "pdflatex",
+        'font.family': 'serif',
+        'font.size': 8,
+        'text.usetex': True,
+        'pgf.rcfonts': False,
+        'figure.autolayout': True,
+    })
     args = __parse_args()
 
     results_for_table = {}
