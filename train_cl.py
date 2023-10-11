@@ -338,6 +338,7 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
                 f"Strategy {strategy_config.strategy} not implemented")
 
     elif generator_type == "vae":
+        print("WARNING: VAE code has not been tested in a while...")
         generator = MlpVAE(
             (model_config.model.channels, model_config.model.input_size,
              model_config.model.input_size),

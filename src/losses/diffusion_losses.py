@@ -38,6 +38,9 @@ class SmoothL1Loss(DiffusionLoss):
 
 
 class MinSNRLoss(DiffusionLoss):
+    """
+    Based on https://github.com/TiankaiHang/Min-SNR-Diffusion-Training
+    """
 
     def __init__(self, scheduler: SchedulerMixin, k: int = 5, divide_by_snr: bool = True, reduction: str = "mean"):
         super().__init__(scheduler)

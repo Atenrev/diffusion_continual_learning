@@ -1,8 +1,5 @@
 import os
 import json
-import numpy as np
-
-from typing import List, Tuple
 
 from src.trackers.base_tracker import Stage, ExperimentTracker
 

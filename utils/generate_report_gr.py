@@ -23,6 +23,7 @@ def __parse_args() -> argparse.Namespace:
                         default="results_fuji/smasipca/generative_replay/split_fmnist/")
     parser.add_argument("--only_average", action='store_true', default=True)
     parser.add_argument("--filter_condition", type=Union[str, List[str]], 
+                        help="Filter the experiments to plot. If empty string, all experiments are plotted.",
                         default=[
                             "gr_cnn_naive",
                             "gr_cnn_cumulative",
@@ -36,7 +37,6 @@ def __parse_args() -> argparse.Namespace:
                             "gaussian_distillation_steps_10_lambd_24.0_cnn", 
                             # "gaussian_symmetry_distillation_steps_10_lambd_12.0_cnn"
                             ])
-                        # default=["steps_20"])
     return parser.parse_args()
 
 
@@ -556,6 +556,8 @@ if __name__ == '__main__':
     })
     args = __parse_args()
     filter_conditions = args.filter_condition
+    if filter_conditions is None:
+        filter_conditions = ""
     if isinstance(filter_conditions, str):
         filter_conditions = [filter_conditions]
 
@@ -575,8 +577,8 @@ if __name__ == '__main__':
         if not os.path.isdir(experiment_path):
             continue
         
-        # print(f"Plotting metrics for {root_experiment}...")
-        # plot_metrics(experiment_path)
+        print(f"Plotting metrics for {root_experiment}...")
+        plot_metrics(experiment_path)
         print(f"Creating summary for {root_experiment}...")
         _, _, _, _, metrics_mean_std = create_summary(experiment_path)
         experiment_name = root_experiment

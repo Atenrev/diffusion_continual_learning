@@ -179,6 +179,7 @@ def run_experiment(args, device, model_config, tracker, results_folder):
                           save_path=results_folder, save_every=args.save_every)
 
     elif args.training_type == "generative":
+        print("WARNING: This training type is not fully tested and is not compatible with the new code.")
         model = MlpVAE(
             (model_config.model.channels, model_config.model.input_size,
              model_config.model.input_size),
