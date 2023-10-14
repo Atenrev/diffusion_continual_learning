@@ -61,8 +61,8 @@ class FIDMetric(Metric[float]):
 
 class DistributionMetrics(Metric[float]):
     """
-    This metric computes the Absolute Ratio Difference (ARD) between two
-    distributions of images. 
+    This metric computes the Absolute Ratio Difference (ARD)  and the KLD
+    between two distributions of class frequencies. 
 
     ARD^{b} = \sum_{j=1}^b \lvert \rho_j^{T_b} - \rho_j^{\epsilon_b} \rvert
     """
@@ -94,11 +94,6 @@ class DistributionMetrics(Metric[float]):
     def result(self) -> float:
         ratio_true = self.hist_true / torch.sum(self.hist_true)
         ratio_pred = self.hist_pred / torch.sum(self.hist_pred)
-
-        # Mask out zero values on the predicted distribution
-        # ratio_pred[ratio_true == 0] = 0
-        # Renormalize
-        # ratio_pred = ratio_pred / torch.sum(ratio_pred)
 
         ard = torch.sum(torch.abs(ratio_true - ratio_pred)) / 2.0
         kl = torch.nn.KLDivLoss(reduction='batchmean')

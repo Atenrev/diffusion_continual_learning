@@ -133,8 +133,8 @@ def create_table(experiments_path: str, metrics: dict):
     Table format:
     Experiment Name | Metric 1 | Metric 2 | ... | Metric N
     ------------------------------------------------------
-    Experiment 1    | mean±std | mean±std | ... | mean±std
-    Experiment 2    | mean±std | mean±std | ... | mean±std
+    Experiment 1    | mean±sem | mean±sem | ... | mean±sem
+    Experiment 2    | mean±sem | mean±sem | ... | mean±sem
     ...
     
     Args:

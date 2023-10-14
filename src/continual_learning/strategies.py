@@ -263,7 +263,7 @@ class BaseDiffusionTraining(SupervisedTemplate):
         if self.experience.current_experience == 0 or not self.model.training:
             return self._criterion(self.noise_x, self.mb_output), torch.zeros(1).to(self.device)
 
-        start_of_replay = self.mb_x.shape[0] // 2
+        start_of_replay = self.mb_x.shape[0]
 
         real_data_loss = self._criterion(
             self.noise_x[:start_of_replay], self.mb_output[:start_of_replay])
@@ -277,10 +277,7 @@ class BaseDiffusionTraining(SupervisedTemplate):
 
     def training_epoch(self, **kwargs):
         """
-        Training epoch.
-
-        :param kwargs:
-        :return:
+        Training loop over the current `self.dataloader`.
         """
         for self.mbatch in self.dataloader:
             if self._stop_training:

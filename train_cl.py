@@ -4,7 +4,7 @@ import torch
 import torch.optim.lr_scheduler
 
 from torchvision import transforms
-from diffusers import UNet2DModel, DDIMScheduler
+from diffusers import UNet2DModel
 from torch.nn import CrossEntropyLoss
 
 from avalanche.training import Naive, Cumulative, Replay, EWC, SynapticIntelligence, LwF
@@ -40,6 +40,7 @@ from src.continual_learning.metrics.diffusion_metrics import DiffusionMetricsMet
 from src.continual_learning.metrics.loss import loss_metrics, replay_loss_metrics, data_loss_metrics
 from src.continual_learning.loggers import TextLogger, CSVLogger
 from src.pipelines.pipeline_ddim import DDIMPipeline
+from src.schedulers.scheduler_ddim import DDIMScheduler
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline, generate_diffusion_samples
 from src.models.vae import MlpVAE, VAE_loss
