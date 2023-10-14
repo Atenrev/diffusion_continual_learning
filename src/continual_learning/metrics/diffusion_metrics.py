@@ -61,7 +61,7 @@ class FIDMetric(Metric[float]):
 
 class DistributionMetrics(Metric[float]):
     """
-    This metric computes the Absolute Ratio Difference (ARD)  and the KLD
+    This metric computes the Absolute Ratio Difference (ARD) and the KLD
     between two distributions of class frequencies. 
 
     ARD^{b} = \sum_{j=1}^b \lvert \rho_j^{T_b} - \rho_j^{\epsilon_b} \rvert

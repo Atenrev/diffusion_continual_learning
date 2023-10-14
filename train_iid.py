@@ -34,36 +34,50 @@ from src.trackers.csv_tracker import CSVTracker
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--image_size", type=int, default=32)
-    parser.add_argument("--channels", type=int, default=1)
+    parser.add_argument("--image_size", type=int, default=32,
+                        help="Size of images to use for training")
+    parser.add_argument("--channels", type=int, default=1,
+                        help="Number of channels to use for training")
 
-    parser.add_argument("--dataset", type=str, default="fashion_mnist")
+    parser.add_argument("--dataset", type=str, default="fashion_mnist",
+                        help="Dataset to use for training (mnist, fashion_mnist, cifar100)")
 
     parser.add_argument("--model_config_path", type=str,
-                        default="configs/model/ddim_medium.json")
+                        default="configs/model/ddim_medium.json",
+                        help="Path to model configuration file")
     parser.add_argument("--training_type", type=str, default="evaluate",
                         help="Type of training to use (evaluate, diffusion, generative)")
     parser.add_argument("--distillation_type", type=str, default=None,
                         help="Type of distillation to use (gaussian, gaussian_symmetry, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results_fuji/smasipca/iid_results/comparison/diffusion/no_distillation/ddim_medium_mse_teacher_20_eta_0.0/69/last_model",
+    parser.add_argument("--teacher_path", type=str, default="results_fuji/smasipca/iid_results/comparison/diffusion/None/ddim_medium_mse/42/last_model",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (smooth_l1, mse, min_snr)")
 
-    parser.add_argument("--generation_steps", type=int, default=20)
-    parser.add_argument("--eta", type=float, default=0.0)
-    parser.add_argument("--teacher_generation_steps", type=int, default=2)
-    parser.add_argument("--teacher_eta", type=float, default=0.0)
+    parser.add_argument("--generation_steps", type=int, default=20,
+                        help="Number of steps for diffusion (used in evaluation)")
+    parser.add_argument("--eta", type=float, default=0.0,
+                        help="Eta for diffusion (used in evaluation)")
+    parser.add_argument("--teacher_generation_steps", type=int, default=2,
+                        help="Number of steps for teacher diffusion (used in distillation)")
+    parser.add_argument("--teacher_eta", type=float, default=0.0,
+                        help="Eta for teacher diffusion (used in distillation)")
 
-    parser.add_argument("--num_epochs", type=int, default=100)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--eval_batch_size", type=int, default=128)
+    parser.add_argument("--num_epochs", type=int, default=100,
+                        help="Number of epochs (when not using distillation) or iterations (when using distillation) to train for")
+    parser.add_argument("--batch_size", type=int, default=128,
+                        help="Batch size to use for training")
+    parser.add_argument("--eval_batch_size", type=int, default=128,
+                        help="Batch size to use for evaluation")
 
-    parser.add_argument("--results_folder", type=str, default="/esat/fuji/smasipca/iid_results")
+    parser.add_argument("--results_folder", type=str, default="/esat/fuji/smasipca/iid_results",
+                        help="Folder to save results to")
     parser.add_argument("--save_every", type=int, default=5,
                         help="Evaluate and save model every n epochs (normal) or n iterations (distillation)")
-    parser.add_argument("--use_wandb", action="store_true", default=False)
-    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--use_wandb", action="store_true", default=False,
+                        help="Whether to use wandb for logging")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Seed to use for training. If None, train with 5 different seeds and report the best one")
     return parser.parse_args()
 
 

@@ -49,26 +49,41 @@ from src.models.simple_cnn import SimpleCNN
 
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="split_fmnist")
-    parser.add_argument("--image_size", type=int, default=32)
+    parser.add_argument("--dataset", type=str, default="split_fmnist",
+                        choices=["split_fmnist", "split_mnist"],
+                        help="Dataset to use for the benchmark")
+    parser.add_argument("--image_size", type=int, default=32,
+                        help="Image size to use for the benchmark")
 
-    parser.add_argument("--generator_type", type=str, default="diffusion")
+    parser.add_argument("--generator_type", type=str, default="diffusion",
+                        choices=["diffusion", "vae", "None"],
+                        help="Type of generator to use for generative replay (default: diffusion, None to only train the solver)")
     parser.add_argument("--generator_config_path", type=str,
-                        default="configs/model/ddim_medium.json")
+                        default="configs/model/ddim_medium.json",
+                        help="Path to the configuration file of the generator")
     parser.add_argument("--generator_strategy_config_path",
-                        type=str, default="configs/strategy/diffusion_debug.json")
+                        type=str, default="configs/strategy/diffusion_debug.json",
+                        help="Path to the configuration file of the generator strategy")
     
-    parser.add_argument("--lambd", type=float, default=1.0)
-    parser.add_argument("--generation_steps", type=int, default=10) # Used in the solver strategy
-    parser.add_argument("--eta", type=float, default=0.0)
+    parser.add_argument("--lambd", type=float, default=1.0,
+                        help="Lambda parameter used in the generative replay loss of the generator")
+    parser.add_argument("--generation_steps", type=int, default=10,
+                        help="Number of steps to use for the diffusion process in evaluation and generative replay of the classifier") 
+    parser.add_argument("--eta", type=float, default=0.0,
+                        help="Eta parameter used in the generative replay loss of the generator")
     
-    parser.add_argument("--solver_type", type=str, default="cnn")
+    parser.add_argument("--solver_type", type=str, default="cnn",
+                        choices=["mlp", "cnn", "None"],
+                        help="Type of solver to use for the benchmark (default: cnn, None to only train the generator)")
     parser.add_argument("--solver_config_path", type=str,
-                        default="configs/model/cnn.json")
+                        default="configs/model/cnn.json",
+                        help="Path to the configuration file of the solver")
     parser.add_argument("--solver_strategy_config_path", type=str,
-                        default="configs/strategy/cnn_w_diffusion_debug.json")
+                        default="configs/strategy/cnn_w_diffusion_debug.json",
+                        help="Path to the configuration file of the solver strategy")
 
-    parser.add_argument("--seed", type=int, default=-1)
+    parser.add_argument("--seed", type=int, default=-1,
+                        help="Seed to use for the experiment. -1 to run the experiment with seeds 42, 69, 1714")
     parser.add_argument(
         "--cuda",
         type=int,
@@ -76,9 +91,12 @@ def __parse_args() -> argparse.Namespace:
         help="Select zero-indexed cuda device. -1 to use CPU.",
     )
     parser.add_argument("--output_dir", type=str,
-                        default="results_fuji/smasipca/generative_replay_debug/")
-    parser.add_argument("--project_name", type=str, default="master-thesis-genreplay")
-    parser.add_argument("--wandb", action="store_true", default=False)
+                        default="results_fuji/smasipca/generative_replay_debug/",
+                        help="Output directory for the results")
+    parser.add_argument("--project_name", type=str, default="master-thesis-genreplay",
+                        help="Name of the wandb project")
+    parser.add_argument("--wandb", action="store_true", default=False,
+                        help="Use wandb for logging")
     return parser.parse_args()
 
 
