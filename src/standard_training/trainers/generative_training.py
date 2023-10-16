@@ -4,8 +4,8 @@ import torch
 from tqdm import tqdm
 from typing import Optional, Any
 
-from src.evaluators.base_evaluator import BaseEvaluator
-from src.trainers.base_trainer import BaseTrainer
+from src.standard_training.evaluators.base_evaluator import BaseEvaluator
+from src.standard_training.trainers.base_trainer import BaseTrainer
 
 
 class GenerativeTraining(BaseTrainer):

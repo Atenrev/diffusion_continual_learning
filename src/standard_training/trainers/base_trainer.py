@@ -4,7 +4,7 @@ import torch
 from typing import Any, Optional
 from abc import ABC
 
-from src.evaluators.base_evaluator import BaseEvaluator
+from src.standard_training.evaluators.base_evaluator import BaseEvaluator
 
 
 class BaseTrainer(ABC):

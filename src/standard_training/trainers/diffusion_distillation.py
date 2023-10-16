@@ -6,12 +6,12 @@ from copy import deepcopy
 from typing import Optional, Any, Tuple
 from diffusers import DDIMPipeline
 
-from src.losses.diffusion_losses import DiffusionLoss
+from src.standard_training.losses.diffusion_losses import DiffusionLoss
 from diffusers import SchedulerMixin
 
-from src.evaluators.base_evaluator import BaseEvaluator
-from src.trainers.base_trainer import BaseTrainer
-from src.trackers.wandb_tracker import ExperimentTracker, Stage
+from src.standard_training.evaluators.base_evaluator import BaseEvaluator
+from src.standard_training.trainers.base_trainer import BaseTrainer
+from src.standard_training.trackers.wandb_tracker import ExperimentTracker, Stage
 
 
 class DiffusionDistillation(BaseTrainer):

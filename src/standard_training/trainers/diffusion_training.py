@@ -6,10 +6,10 @@ from copy import deepcopy
 from typing import Optional, Tuple
 from diffusers import DDIMPipeline, SchedulerMixin, EMAModel
 
-from src.losses.diffusion_losses import DiffusionLoss
-from src.evaluators.base_evaluator import BaseEvaluator
-from src.trackers.wandb_tracker import WandbTracker
-from src.trackers.base_tracker import Stage
+from src.standard_training.losses.diffusion_losses import DiffusionLoss
+from src.standard_training.evaluators.base_evaluator import BaseEvaluator
+from src.standard_training.trackers.wandb_tracker import WandbTracker
+from src.standard_training.trackers.base_tracker import Stage
 
 
 class DiffusionTraining:

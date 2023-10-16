@@ -6,7 +6,7 @@ from tqdm import tqdm
 from torchmetrics.image.fid import FrechetInceptionDistance
 
 from src.common.diffusion_utils import make_grid
-from src.evaluators.base_evaluator import BaseEvaluator
+from src.standard_training.evaluators.base_evaluator import BaseEvaluator
 
 
 class GenerativeModelEvaluator(BaseEvaluator):

@@ -16,19 +16,19 @@ from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline
 from src.pipelines.pipeline_ddim import DDIMPipeline
 from src.models.vae import MlpVAE, VAE_loss
-from src.losses.diffusion_losses import MSELoss, MinSNRLoss, SmoothL1Loss
-from src.trainers.diffusion_training import DiffusionTraining
-from src.trainers.diffusion_distillation import (
+from src.standard_training.losses.diffusion_losses import MSELoss, MinSNRLoss, SmoothL1Loss
+from src.standard_training.trainers.diffusion_training import DiffusionTraining
+from src.standard_training.trainers.diffusion_distillation import (
     GaussianDistillation,
     GaussianSymmetryDistillation,
     PartialGenerationDistillation,
     GenerationDistillation,
     NoDistillation
 )
-from src.trainers.generative_training import GenerativeTraining
-from src.evaluators.generative_evaluator import GenerativeModelEvaluator
-from src.trackers.wandb_tracker import WandbTracker
-from src.trackers.csv_tracker import CSVTracker
+from src.standard_training.trainers.generative_training import GenerativeTraining
+from src.standard_training.evaluators.generative_evaluator import GenerativeModelEvaluator
+from src.standard_training.trackers.wandb_tracker import WandbTracker
+from src.standard_training.trackers.csv_tracker import CSVTracker
 
 
 def __parse_args() -> argparse.Namespace:
@@ -45,7 +45,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--model_config_path", type=str,
                         default="configs/model/ddim_medium.json",
                         help="Path to model configuration file")
-    parser.add_argument("--training_type", type=str, default="evaluate",
+    parser.add_argument("--training_type", type=str, default="diffusion",
                         help="Type of training to use (evaluate, diffusion, generative)")
     parser.add_argument("--distillation_type", type=str, default=None,
                         help="Type of distillation to use (gaussian, gaussian_symmetry, generation, partial_generation, no_distillation)")

@@ -1,7 +1,7 @@
 import os
 import json
 
-from src.trackers.base_tracker import Stage, ExperimentTracker
+from src.standard_training.trackers.base_tracker import Stage, ExperimentTracker
 
 
 class CSVTracker(ExperimentTracker):

@@ -2,7 +2,7 @@ import wandb
 
 from typing import List
 
-from src.trackers.base_tracker import Stage, ExperimentTracker
+from src.standard_training.trackers.base_tracker import Stage, ExperimentTracker
 
 
 class WandbTracker(ExperimentTracker):

@@ -19,16 +19,16 @@ from src.datasets.mnist import create_dataloader as create_mnist_dataloader
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline
 from src.pipelines.pipeline_ddim import DDIMPipeline
-from src.losses.diffusion_losses import MSELoss, MinSNRLoss
-from src.trainers.diffusion_distillation import (
+from src.standard_training.losses.diffusion_losses import MSELoss, MinSNRLoss
+from src.standard_training.trainers.diffusion_distillation import (
     GaussianDistillation,
     PartialGenerationDistillation,
     GenerationDistillation,
     NoDistillation
 )
-from src.evaluators.generative_evaluator import GenerativeModelEvaluator
+from src.standard_training.evaluators.generative_evaluator import GenerativeModelEvaluator
 from src.common.visual import plot_line_graph
-from src.trackers.csv_tracker import CSVTracker
+from src.standard_training.trackers.csv_tracker import CSVTracker
 
 
 def __parse_args() -> argparse.Namespace:

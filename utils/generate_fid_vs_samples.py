@@ -18,7 +18,7 @@ from src.datasets.mnist import create_dataloader as create_mnist_dataloader
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline
 from src.pipelines.pipeline_ddim import DDIMPipeline
-from src.evaluators.generative_evaluator import GenerativeModelEvaluator
+from src.standard_training.evaluators.generative_evaluator import GenerativeModelEvaluator
 from src.common.visual import plot_line_std_graph
 
 

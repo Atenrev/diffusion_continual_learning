@@ -318,7 +318,7 @@ class CSVLogger(BaseLogger, SupervisedPlugin):
     consistency, even if this is not strictly required.
 
     The training file header is composed of:
-    metric_name, training_exp, epoch, value
+    metric_name, training_exp, epoch, x_plot, value
 
     The evaluation file header is composed of:
     metric_name, eval_exp, training_exp, value

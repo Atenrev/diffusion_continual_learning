@@ -5,7 +5,6 @@ from copy import deepcopy
 
 from torch import nn
 from torch.optim import Optimizer
-from torch.nn import functional as F
 
 from avalanche.models import VAE_loss
 from avalanche.training.plugins.evaluation import default_evaluator

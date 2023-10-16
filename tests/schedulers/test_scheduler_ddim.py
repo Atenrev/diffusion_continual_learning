@@ -21,8 +21,8 @@ class TestDDIMScheduler(unittest.TestCase):
         
         target_steps = np.asarray([0, 10])
         expected_timesteps = torch.from_numpy(np.vstack([
-            (np.array([999, 900, 801, 702, 603, 504, 405, 306, 207, 108]) + scheduler.config.steps_offset),
             (np.array([999, 899, 799, 699, 599, 499, 399, 299, 199, 99]) + scheduler.config.steps_offset),
+            (np.array([999, 900, 801, 702, 603, 504, 405, 306, 207, 108]) + scheduler.config.steps_offset),
         ])).T
         scheduler.set_timesteps(num_inference_steps, target_steps, device)
         assert scheduler.num_inference_steps == num_inference_steps
