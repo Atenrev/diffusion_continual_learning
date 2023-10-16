@@ -42,7 +42,8 @@ class FIDMetric(Metric[float]):
     ) -> None:
         predicted_y = torch.as_tensor(predicted_y)
 
-        if len(predicted_y) == 3:
+        if len(predicted_y) == 3: 
+            # Not expected from a dm output
             predicted_y = predicted_y[0]
 
         if predicted_y.shape[1] == 1:
@@ -186,7 +187,7 @@ class DiffusionMetricsMetric(PluginMetric[float]):
         metrics.append(MetricValue(self, metric_name, metric_value,
                                 plot_x_position))
         
-        ard_val, kl_val, hist_pred, hist_true = self.dist_metrics.result()
+        ard_val, kl_val, hist_true, hist_pred = self.dist_metrics.result()
         ard_name = get_metric_name("stream_ard", strategy,
                                         add_experience=add_exp,
                                         add_task=True)
