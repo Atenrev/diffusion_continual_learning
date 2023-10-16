@@ -138,7 +138,7 @@ def plot_metrics(experiment_path: str):
         for i in range(len(metrics['stream_hist_pred'])):
             metrics['stream_hist'].append([])
             for j in range(len(metrics['stream_hist_pred'][i])):
-                metrics['stream_hist'][i].append([metrics['stream_hist_pred'][i][j], metrics['stream_hist_true'][i][j]])
+                metrics['stream_hist'][i].append([metrics['stream_hist_true'][i][j], metrics['stream_hist_pred'][i][j]])
         del metrics['stream_hist_pred']
         del metrics['stream_hist_true']
     

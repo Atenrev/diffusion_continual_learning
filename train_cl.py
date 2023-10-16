@@ -377,7 +377,7 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
             loggers=loggers,
         )
         plugins.append(UpdatedGenerativeReplayPlugin(
-                    replay_size=strategy_config.increasing_replay_size,
+                    replay_size=None,
                     increasing_replay_size=strategy_config.increasing_replay_size,
                 ))
         generator_strategy = VAETraining(
