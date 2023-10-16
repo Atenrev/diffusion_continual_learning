@@ -474,7 +474,6 @@ class GaussianDistillationDiffusionTraining(BaseDiffusionTraining):
         if not self.untrained_generator:
             assert self.old_model is not None
             noise_replay = torch.randn(self.mbatch[0].shape).to(self.device)
-            # # Below timestep 50, the loss impact is minimal. Ref: TODO
             timesteps_replay = torch.randint(
                 self.replay_start_timestep, self.scheduler.config.num_train_timesteps, (
                     batch_size,), device=self.device
