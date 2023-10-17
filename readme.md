@@ -77,7 +77,7 @@ For more information, please use the ``-h`` flag.
 Before training a model using distillation, you need to train a teacher model. To train a teacher model on Fashion-MNIST, use the following command:
 
 ```bash
-python train_iid.py -dataset "fashion_mnist" --model_config_path "configs/model/ddim_medium.json" --num_epochs 100 --results_folder "results/iid/" --seed 42
+python train_iid.py --dataset "fashion_mnist" --model_config_path "configs/model/ddim_medium.json" --num_epochs 100 --results_folder "results/iid/" --seed 42
 ```
 
 This will train a diffusion model with the configuration in ``configs/model/ddim_medium.json`` for 100 epochs on Fashion-MNIST, and save the model to ``results/iid/fashion_mnist/diffusion/None/ddim_medium_mse/``. The model will be trained with seed 42, and the results will be saved to ``results/iid/fashion_mnist/diffusion/None/ddim_medium_mse/42``. To access the model saved after the last epoch, use the path ``results/iid/fashion_mnist/diffusion/None/ddim_medium_mse/42/last_model``.
@@ -135,7 +135,7 @@ This will run the experiment with seeds 42, 69 and 1714, and save the results to
 You can generate plots of the results using the ``generate_report_iid.py`` and ``generate_report_cl.py`` scripts in the ``utils`` folder. These scripts expect a folder with the results folder of one or more experiments, and generate a report with the results. For example, to generate a report for the IID experiments, use the following command:
 
 ```bash
-python utils/generate_report_iid.py --experiments_path results/iid/diffusion/
+python utils/generate_report_iid.py --experiments_path results/iid/fashion_mnist/diffusion/
 ```
 
 This will generate a report with the results of the experiments in the ``results/iid/diffusion/`` folder. 
