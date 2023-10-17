@@ -22,9 +22,11 @@ def wrap_in_pipeline(model, scheduler, pipeline_class, num_inference_steps: int,
     assert def_output_type in ["torch", "torch_raw", "pil"], f"Invalid output type {def_output_type}"
     
     def generate(self, batch_size: int, target_steps: Union[List[int], int] = 0, generation_steps: int = num_inference_steps, eta: float = default_eta, output_type: str = def_output_type, seed: Optional[int] = None) -> torch.Tensor:   
-        generator = torch.Generator(device=self.device)
         if seed is not None:
-            generator.manual_seed(seed)        
+            generator = torch.Generator(device=self.device)
+            generator.manual_seed(seed) 
+        else:
+            generator = None       
         pipeline = pipeline_class(unet=self, scheduler=scheduler)
         pipeline.set_progress_bar_config(disable=True)
         samples = pipeline(

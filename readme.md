@@ -1,4 +1,4 @@
-# Diffusion Models for Replay in Continual Learning
+# Continual Learning of Diffusion Models with Generative Distillation
 
 A PyTorch implementation of the continual learning experiments with Diffusion Models described in the following paper:
 

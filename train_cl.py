@@ -87,7 +87,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cuda",
         type=int,
-        default=-1,
+        default=0,
         help="Select zero-indexed cuda device. -1 to use CPU.",
     )
     parser.add_argument("--output_dir", type=str,
@@ -620,7 +620,7 @@ def run_experiment(args, seed: int, device: torch.device):
                 device,
                 generation_steps=args.generation_steps,
                 eta=args.eta,
-                checkpoint_plugin=checkpoint_plugin if args.solver_type is None else None,
+                checkpoint_plugin=checkpoint_plugin if args.solver_type is None or args.solver_type == "None" else None,
                 lambd=args.lambd,
             )
 

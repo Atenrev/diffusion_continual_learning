@@ -56,7 +56,8 @@ class FIDMetric(Metric[float]):
 
     def reset(self):
         self.fid = FrechetInceptionDistance(normalize=True, feature=2048)
-        if self.device == 'cuda':
+        if  type(self.device) == str and self.device.startswith('cuda') \
+                or type(self.device) == torch.device and self.device.type == 'cuda':
             self.fid.cuda()
 
 
@@ -111,8 +112,8 @@ class DiffusionMetricsMetric(PluginMetric[float]):
     def __init__(self, device='cuda', weights_path: str = "results/cnn_fmnist/", n_samples: int = 10000, num_classes: int = 10):
         self.classifier = resnet18()
         self.classifier.fc = nn.Linear(self.classifier.fc.in_features, num_classes)
-        self.classifier.load_state_dict(torch.load(os.path.join(weights_path, "resnet.pth")))
         self.classifier.to(device)
+        self.classifier.load_state_dict(torch.load(os.path.join(weights_path, "resnet.pth"), map_location=device))
         self.classifier.eval() 
 
         self.fid_metric = FIDMetric(device)
