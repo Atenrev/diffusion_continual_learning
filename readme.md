@@ -127,7 +127,7 @@ For example, to run the continual learning experiment on Split Fashion-MNIST wit
 python train_cl.py --generator_strategy_config_path "configs/strategy/diffusion_full_gen_distill.json" --generation_steps 10 --lambd 3.0 --seed -1 --output_dir results/continual_learning/ --solver_strategy_config_path "configs/strategy/cnn_w_diffusion.json"
 ```
 
-This will run the experiment with seeds 42, 69 and 1714, and save the results to ``results/continual_learning/dataset_name``. In this case, the results will be saved to ``results/continual_learning/split_fmnist/gr_diffusion_full_generation_distillation_steps_10_lambd_3.0_cnn``. Inside this folder, you will find the a folder for each seed, and inside each of these folders you will find the logs in CSV format inside the ``logs`` folder.
+This will run the experiment with seeds 42, 69 and 1714, and save the results to ``results/continual_learning/dataset_name``. In this case, the results will be saved to ``results/continual_learning/split_fmnist/gr_diffusion_full_generation_distillation_steps_10_lambd_3.0_cnn``. Inside this folder, you will find a folder for each seed, and inside each of these folders you will find the logs in CSV format inside the ``logs`` folder.
 
 
 ## Visualizing the results
