@@ -56,7 +56,7 @@ class FIDMetric(Metric[float]):
 
     def reset(self):
         self.fid = FrechetInceptionDistance(normalize=True, feature=2048)
-        if  type(self.device) == str and self.device.startswith('cuda') \
+        if type(self.device) == str and self.device.startswith('cuda') \
                 or type(self.device) == torch.device and self.device.type == 'cuda':
             self.fid.cuda()
 

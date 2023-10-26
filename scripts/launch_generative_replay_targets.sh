@@ -1,2 +1,0 @@
-condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python generative_replay.py --generator_strategy_config_path "configs/strategy/diffusion_cumulative.json" --generation_steps 10 --seed -1 --output_dir "results_fuji/smasipca/generative_replay/" --solver_type None'
-condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python generative_replay.py --solver_strategy_config_path "configs/strategy/cnn_w_cumulative.json" --seed -1 --output_dir "results_fuji/smasipca/generative_replay/" --generator_type None --solver_type cnn'
