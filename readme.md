@@ -2,7 +2,7 @@
 
 A PyTorch implementation of the continual learning experiments with Diffusion Models described in the following paper:
 
-- Continual Learning of Diffusion Models with Generative Distillation: (waiting for publication)
+- Continual Learning of Diffusion Models with Generative Distillation: https://arxiv.org/abs/2311.14028
 
 This paper proposes to introduce knowledge distillation into generative replay of diffusion models, which substantially improves the performance of the continually trained model.
 
@@ -152,5 +152,10 @@ python utils/generate_report_cl.py --experiments_path results/continual_learning
 If you use this code in your research, please cite the following paper:
 
 ```
-Waiting for publication
+@article{masip2023continual,
+   title={Continual Learning of Diffusion Models with Generative Distillation},
+   author={Sergi Masip and Pau Rodriguez and Tinne Tuytelaars and Gido M. van de Ven},
+   journal={arXiv preprint arXiv:2311.14028},
+   year={2023}
+ }
 ```
