@@ -129,6 +129,8 @@ python train_cl.py --generator_strategy_config_path "configs/strategy/diffusion_
 
 This will run the experiment with seeds 42, 69 and 1714, and save the results to ``results/continual_learning/dataset_name``. In this case, the results will be saved to ``results/continual_learning/split_fmnist/gr_diffusion_full_generation_distillation_steps_10_lambd_3.0_cnn``. Inside this folder, you will find a folder for each seed, and inside each of these folders you will find the logs in CSV format inside the ``logs`` folder.
 
+**To reproduce the experiments in the paper, refer to ``scripts/launch_cl_workshop_experiments.sh``, where you will find all the commands ready to run.**
+
 
 ## Visualizing the results
 
