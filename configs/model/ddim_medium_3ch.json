@@ -4,11 +4,15 @@
         "input_size": 32,
         "in_channels": 3,
         "out_channels": 3,
-        "layers_per_block": 1,
-        "block_out_channels": [64, 128, 256, 512],
+        "layers_per_block": 2,
+        "block_out_channels": [128, 256, 256, 256],
         "norm_num_groups": 32,
-        "down_block_types": ["DownBlock2D","DownBlock2D","DownBlock2D","AttnDownBlock2D"],
-        "up_block_types": ["AttnUpBlock2D","UpBlock2D","UpBlock2D","UpBlock2D"]
+        "norm_eps": 0.000001,
+        "freq_shift": 1,
+        "attention_head_dim": null,
+        "flip_sin_to_cos": false,
+        "down_block_types": ["DownBlock2D","AttnDownBlock2D","DownBlock2D","DownBlock2D"],
+        "up_block_types": ["UpBlock2D","UpBlock2D","AttnUpBlock2D","UpBlock2D"]
     },
     "scheduler": {
         "name": "DDIM",

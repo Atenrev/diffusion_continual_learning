@@ -3,6 +3,40 @@ from avalanche.core import SupervisedPlugin
 import torch
 
 
+class OldGeneratorManager:
+    """
+    OldGeneratorManager is a class that manages the old generator
+    when using the UpdatedGenerativeReplayPlugin with multiple
+    strategies. Stores the old generator as a singleton.
+    """
+    _old_generator = None
+    _current_experience = None
+
+    @classmethod
+    def update_and_get_old_generator(cls, generator, current_experience):
+        """
+        Sets the old generator and the current experience.
+        If the current experience is the same as the previous one,
+        the old generator is not updated.
+
+        Returns the old generator.
+        """
+        if cls._current_experience != current_experience:
+            cls._current_experience = current_experience
+            new_device = generator.device
+
+            # Check if there is a second GPU available
+            if torch.cuda.device_count() > 1:
+                # If yes, move the generator to the second GPU
+                new_device = torch.device(torch.device("cuda:1"))
+
+            cls._old_generator = deepcopy(generator)
+            cls._old_generator.to(new_device)
+            cls._old_generator.eval()
+
+        return cls._old_generator
+
+
 class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
     """
     Experience generative replay plugin.
@@ -75,11 +109,19 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
         if self.untrained_solver:
             return
         
-        self.old_generator = deepcopy(self.generator)
-        self.old_generator.eval()
+        self.old_generator = OldGeneratorManager.update_and_get_old_generator(
+            self.generator, strategy.experience.current_experience
+        )
+
         if not self.model_is_generator:
             self.old_model = deepcopy(strategy.model)
+
+            if torch.cuda.device_count() > 1:
+                self.old_model.to(torch.device(torch.device("cuda:1")))
+
             self.old_model.eval()
+
+        torch.cuda.empty_cache()
 
     def after_training_exp(
         self, strategy, num_workers: int = 0, shuffle: bool = True, **kwargs
@@ -115,8 +157,13 @@ class UpdatedGenerativeReplayPlugin(SupervisedPlugin):
 
         # extend y with predicted labels (or mock labels if model==generator)
         if not self.model_is_generator:
+            if torch.cuda.device_count() > 1:
+                replay_in_old_device = replay.to(torch.device(torch.device("cuda:1")))
+            else:
+                replay_in_old_device = replay
+
             with torch.no_grad():
-                replay_output = self.old_model(replay)
+                replay_output = self.old_model(replay_in_old_device)
         else:
             # Mock labels:
             replay_output = torch.zeros(replay.shape[0])

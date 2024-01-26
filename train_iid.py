@@ -11,6 +11,7 @@ from diffusers import UNet2DModel, DDIMScheduler
 
 from src.datasets.fashion_mnist import create_dataloader as create_fashion_mnist_dataloader
 from src.datasets.mnist import create_dataloader as create_mnist_dataloader
+from src.datasets.cifar10 import create_dataloader as create_cifar10_dataloader 
 from src.datasets.cifar100 import create_dataloader as create_cifar100_dataloader 
 from src.common.utils import get_configuration
 from src.common.diffusion_utils import wrap_in_pipeline
@@ -36,20 +37,18 @@ def __parse_args() -> argparse.Namespace:
 
     parser.add_argument("--image_size", type=int, default=32,
                         help="Size of images to use for training")
-    parser.add_argument("--channels", type=int, default=1,
-                        help="Number of channels to use for training")
 
-    parser.add_argument("--dataset", type=str, default="fashion_mnist",
-                        help="Dataset to use for training (mnist, fashion_mnist, cifar100)")
+    parser.add_argument("--dataset", type=str, default="cifar10",
+                        help="Dataset to use for training (mnist, fashion_mnist, cifar10, cifar100)")
 
     parser.add_argument("--model_config_path", type=str,
-                        default="configs/model/ddim_medium.json",
+                        default="configs/model/ddim_medium_3ch.json",
                         help="Path to model configuration file")
     parser.add_argument("--training_type", type=str, default="diffusion",
                         help="Type of training to use (evaluate, diffusion, generative)")
     parser.add_argument("--distillation_type", type=str, default=None,
                         help="Type of distillation to use (gaussian, gaussian_symmetry, generation, partial_generation, no_distillation)")
-    parser.add_argument("--teacher_path", type=str, default="results_fuji/smasipca/iid_results/comparison/diffusion/None/ddim_medium_mse/42/last_model",
+    parser.add_argument("--teacher_path", type=str, default="results_fuji/smasipca/iid_results/cifar10/diffusion/None/ddim_medium_3ch_mse/42/best_model", #"results_fuji/smasipca/iid_results/comparison/diffusion/None/ddim_medium_mse/42/last_model",
                         help="Path to teacher model (only for distillation)")
     parser.add_argument("--criterion", type=str, default="mse",
                         help="Criterion to use for training (smooth_l1, mse, min_snr)")
@@ -63,7 +62,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher_eta", type=float, default=0.0,
                         help="Eta for teacher diffusion (used in distillation)")
 
-    parser.add_argument("--num_epochs", type=int, default=100,
+    parser.add_argument("--num_epochs", type=int, default=200,
                         help="Number of epochs (when not using distillation) or iterations (when using distillation) to train for")
     parser.add_argument("--batch_size", type=int, default=128,
                         help="Batch size to use for training")
@@ -82,21 +81,68 @@ def __parse_args() -> argparse.Namespace:
 
 
 def run_experiment(args, device, model_config, tracker, results_folder):
-    preprocess = transforms.Compose(
-        [
-            transforms.Resize((args.image_size, args.image_size)),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5], [0.5]),
-        ]
-    )
-
     if args.dataset == "mnist":
+        preprocess = transforms.Compose(
+            [
+                transforms.Resize((args.image_size, args.image_size)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.5], [0.5]),
+            ]
+        )
         train_dataloader, test_dataloader = create_mnist_dataloader(
             args.batch_size, preprocess)
     elif args.dataset == "fashion_mnist":
+        preprocess = transforms.Compose(
+            [
+                transforms.Resize((args.image_size, args.image_size)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.5], [0.5]),
+            ]
+        )
         train_dataloader, test_dataloader = create_fashion_mnist_dataloader(
             args.batch_size, preprocess)
+    elif args.dataset == "cifar10":
+        train_transform = transforms.Compose(
+            [
+                transforms.Resize((args.image_size, args.image_size)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                # transforms.Normalize(
+                #     (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)
+                # ),
+                transforms.Normalize(
+                    (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+                ),
+            ]
+        )
+        test_transform = transforms.Compose(
+            [
+                transforms.Resize((args.image_size, args.image_size)),
+                transforms.ToTensor(),
+                # transforms.Normalize(
+                #     (0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)
+                # ),
+                transforms.Normalize(
+                    (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+                ),
+            ]
+        )
+        train_dataloader, test_dataloader = create_cifar10_dataloader(
+            args.batch_size, 
+            train_transform,
+            test_transform
+        )
     elif args.dataset == "cifar100":
+        preprocess = transforms.Compose(
+            [
+                transforms.Resize((args.image_size, args.image_size)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    (0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)
+                ),
+            ]
+        )
         train_dataloader, test_dataloader = create_cifar100_dataloader(
             args.batch_size, preprocess)
     else:
@@ -115,6 +161,10 @@ def run_experiment(args, device, model_config, tracker, results_folder):
             norm_num_groups=model_config.model.norm_num_groups,
             down_block_types=model_config.model.down_block_types,
             up_block_types=model_config.model.up_block_types,
+            norm_eps=model_config.model.norm_eps,
+            freq_shift=model_config.model.freq_shift,
+            attention_head_dim=model_config.model.attention_head_dim,
+            flip_sin_to_cos=model_config.model.flip_sin_to_cos,
         )
         noise_scheduler = DDIMScheduler(
             num_train_timesteps=model_config.scheduler.train_timesteps)
@@ -150,9 +200,9 @@ def run_experiment(args, device, model_config, tracker, results_folder):
                 train_timesteps=model_config.scheduler.train_timesteps,
                 evaluator=evaluator,
                 tracker=tracker,
+                save_path=results_folder,
             )
-            trainer.train(train_dataloader, test_dataloader,
-                          save_path=results_folder, save_every=args.save_every)
+            trainer.train(train_dataloader, test_dataloader, save_every=args.save_every)
 
         else:
             assert args.teacher_path is not None
@@ -239,9 +289,9 @@ def main(args):
     run_name = f"{args.dataset}/{args.training_type}/{args.distillation_type}/{model_name}_{args.criterion}"
     if args.distillation_type is not None:
         run_name += f"_teacher_steps_{args.teacher_generation_steps}_eta_{args.teacher_eta}"
-    if args.seed is not None:
-        run_name += f"_{args.seed}"
     results_folder = os.path.join(args.results_folder, run_name)
+    if args.seed is not None:
+        results_folder = os.path.join(results_folder, str(args.seed))
     os.makedirs(results_folder, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

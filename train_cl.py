@@ -8,7 +8,7 @@ from diffusers import UNet2DModel
 from torch.nn import CrossEntropyLoss
 
 from avalanche.training import Naive, Cumulative, Replay, EWC, SynapticIntelligence, LwF
-from avalanche.benchmarks import SplitMNIST, SplitFMNIST
+from avalanche.benchmarks import SplitMNIST, SplitFMNIST, SplitCIFAR10
 from avalanche.models import SimpleMLP
 from avalanche.evaluation.metrics import (
     forgetting_metrics,
@@ -49,8 +49,8 @@ from src.models.simple_cnn import SimpleCNN
 
 def __parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="split_fmnist",
-                        choices=["split_fmnist", "split_mnist"],
+    parser.add_argument("--dataset", type=str, default="split_cifar10",
+                        choices=["split_cifar10", "split_fmnist", "split_mnist"],
                         help="Dataset to use for the benchmark")
     parser.add_argument("--image_size", type=int, default=32,
                         help="Image size to use for the benchmark")
@@ -82,7 +82,7 @@ def __parse_args() -> argparse.Namespace:
                         default="configs/strategy/cnn_w_diffusion_debug.json",
                         help="Path to the configuration file of the solver strategy")
 
-    parser.add_argument("--seed", type=int, default=-1,
+    parser.add_argument("--seed", type=int, default=69,
                         help="Seed to use for the experiment. -1 to run the experiment with seeds 42, 69, 1714")
     parser.add_argument(
         "--cuda",
@@ -93,14 +93,42 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--output_dir", type=str,
                         default="results_fuji/smasipca/generative_replay_debug/",
                         help="Output directory for the results")
-    parser.add_argument("--project_name", type=str, default="master-thesis-genreplay",
+    parser.add_argument("--project_name", type=str, default="generative_distillation",
                         help="Name of the wandb project")
     parser.add_argument("--wandb", action="store_true", default=False,
                         help="Use wandb for logging")
     return parser.parse_args()
 
 
-def get_benchmark(image_size: int, seed: int):
+def get_benchmark(dataset: str, image_size: int, seed: int):
+    if dataset == "split_cifar10":
+        train_transform = transforms.Compose(
+            [
+                transforms.Resize(image_size, antialias=True),
+                transforms.CenterCrop(image_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5),
+                                    (0.5, 0.5, 0.5)),
+            ]
+        )
+        test_transform = transforms.Compose(
+            [
+                transforms.Resize(image_size, antialias=True),
+                transforms.CenterCrop(image_size),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5),
+                                    (0.5, 0.5, 0.5)),
+            ]
+        )
+        benchmark = SplitCIFAR10(
+            n_experiences=5,
+            seed=seed,
+            train_transform=train_transform,
+            eval_transform=test_transform,
+        )
+        return benchmark
+
     train_transform = transforms.Compose(
         [
             transforms.Resize((image_size, image_size), antialias=True),
@@ -108,15 +136,15 @@ def get_benchmark(image_size: int, seed: int):
             transforms.Normalize([0.5], [0.5]),
         ]
     )
-
-    if args.dataset == "split_fmnist":
+    
+    if dataset == "split_fmnist":
         benchmark = SplitFMNIST(
             n_experiences=5,
             seed=seed,
             train_transform=train_transform,
             eval_transform=train_transform,
         )
-    elif args.dataset == "split_mnist":
+    elif dataset == "split_mnist":
         benchmark = SplitMNIST(
             n_experiences=5,
             seed=seed,
@@ -125,12 +153,23 @@ def get_benchmark(image_size: int, seed: int):
         )
     else:
         raise NotImplementedError(
-            f"Dataset {args.dataset} not implemented")
+            f"Dataset {dataset} not implemented")
     
     return benchmark
 
 
-def get_generator_strategy(generator_type: str, model_config, strategy_config, loggers, device, generation_steps: int = 20, eta: float = 0.0, lambd: float = 1.0, checkpoint_plugin=None):
+def get_generator_strategy(
+        generator_type: str, 
+        model_config, 
+        strategy_config, 
+        loggers, 
+        device, 
+        generation_steps: int = 20, 
+        eta: float = 0.0, 
+        lambd: float = 1.0, 
+        checkpoint_plugin=None,
+        kld_clf_path: str = "results/cnn_fmnist/",
+        ):
     generator_strategy = None
 
     plugins = []
@@ -174,7 +213,7 @@ def get_generator_strategy(generator_type: str, model_config, strategy_config, l
                 experience=True,
                 stream=True,
             ),
-            DiffusionMetricsMetric(device=device),
+            DiffusionMetricsMetric(device=device, weights_path=kld_clf_path),
             loggers=loggers,
         )
 
@@ -568,7 +607,8 @@ def run_experiment(args, seed: int, device: torch.device):
     
     # --- BENCHMARK CREATION
     image_size = args.image_size
-    benchmark = get_benchmark(image_size, seed)
+    benchmark = get_benchmark(args.dataset, image_size, seed)
+    kld_clf_path = "results/cnn_fmnist/" if args.dataset == "split_fmnist" else "results/cnn_cifar10/"
 
     # --- LOGGER CREATION
     loggers = []
@@ -622,6 +662,7 @@ def run_experiment(args, seed: int, device: torch.device):
                 eta=args.eta,
                 checkpoint_plugin=checkpoint_plugin if args.solver_type is None or args.solver_type == "None" else None,
                 lambd=args.lambd,
+                kld_clf_path=kld_clf_path,
             )
 
         if args.solver_type is None or args.solver_type == "None":

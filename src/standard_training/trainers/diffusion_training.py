@@ -26,6 +26,7 @@ class DiffusionTraining:
                  train_timesteps: int,
                  evaluator: Optional[BaseEvaluator] = None,
                  tracker: Optional[WandbTracker] = None,
+                 save_path: str = "./results/diffusion",
                  ):
         self.model = model
         self.scheduler = scheduler
@@ -38,38 +39,63 @@ class DiffusionTraining:
         self.evaluator = evaluator
         self.train_timesteps = train_timesteps
         self.tracker = tracker
+        self.save_path = save_path
+        self.best_model_path = os.path.join(self.save_path, "best_model")
+        self.last_model_path = os.path.join(self.save_path, "last_model")
 
         # adjust = 1* args.batch_size * args.model_ema_steps / args.epochs
         # alpha = 1.0 - args.model_ema_decay
         # alpha = min(1.0, alpha * adjust)
         # self.model_ema = EMAModel(model.parameters(), power=3/4)
 
+        self.current_epoch = 0
+        self.best_auc = torch.inf
         self.best_model = None
 
+        try:
+            self.load(self.best_model_path)
+        except:
+            pass
 
-    def save(self, path, epoch):
+        os.makedirs(self.best_model_path, exist_ok=True)
+        os.makedirs(self.last_model_path, exist_ok=True)
+
+    def load(self, path: str):
+        if not os.path.exists(path):
+            return
+
+        pipeline = DDIMPipeline.from_pretrained(path)
+        self.model = self.model.to("cpu")
+        self.model.load_state_dict(pipeline.unet.state_dict())
+        self.model = self.model.to(self.device)
+        del pipeline
+
+        # Load optimizer and training state
+        checkpoint = torch.load(os.path.join(path, "training_state.pt"))
+        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.current_epoch = checkpoint["current_epoch"]
+        self.best_auc = checkpoint["best_auc"]
+
+    def save(self, path: str):
         pipeline = DDIMPipeline(self.model, self.scheduler)
         pipeline.save_pretrained(path)
 
         # Save optimizer and training state
         torch.save({
             "optimizer": self.optimizer.state_dict(),
-            "current_epoch": epoch,
+            "current_epoch": self.current_epoch,
+            "best_auc": self.best_auc,
         }, os.path.join(path, "training_state.pt"))
 
     def forward(self, timesteps: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError
 
-    def train(self, train_loader, eval_loader, save_path: str = "./results/diffusion", save_every: int = 1):
-        best_auc = torch.inf
-        best_model_path = os.path.join(save_path, "best_model")
-        last_model_path = os.path.join(save_path, "last_model")
-        os.makedirs(best_model_path, exist_ok=True)
-        os.makedirs(last_model_path, exist_ok=True)
-        
-        for epoch in range(self.train_epochs):
+    def train(self, train_loader, eval_loader, save_every: int = 1):        
+        for epoch in range(self.current_epoch, self.train_epochs):
             print(f"Epoch {epoch}")
+            self.current_epoch = epoch
 
+            self.model.train()
             bar = tqdm(enumerate(train_loader),
                        desc="Training loop", total=len(train_loader))
             average_loss = 0
@@ -119,6 +145,7 @@ class DiffusionTraining:
                     if self.tracker is not None:
                             self.tracker.set_stage(Stage.TEST)
 
+                    self.model.eval()
                     metrics = self.evaluator.evaluate(self.model, eval_loader, epoch, compute_auc=True)
                     auc = metrics["auc"]
 
@@ -127,13 +154,13 @@ class DiffusionTraining:
                             self.tracker.add_epoch_metric(key, value, epoch)
                         self.tracker.flush()
 
-                if auc <= best_auc:
+                if auc <= self.best_auc:
                     print(f"New best model with AUC {auc}")
-                    best_auc = auc 
+                    self.best_auc = auc 
                     self.best_model = deepcopy(self.model)
-                    self.save(best_model_path, epoch)
+                    self.save(self.best_model_path)
                     
-                self.save(last_model_path, epoch)
+                self.save(self.last_model_path)
 
         if self.tracker is not None:
             self.tracker.finish()

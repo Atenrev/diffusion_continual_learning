@@ -1,0 +1,1 @@
+condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python train_kld_classifier.py --dataset "CIFAR10" --output_path "./results/cnn_cifar10"'

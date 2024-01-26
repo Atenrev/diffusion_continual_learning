@@ -6,7 +6,7 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 from copy import deepcopy
 from tqdm import tqdm
-from torchvision.datasets import FashionMNIST
+from torchvision.datasets import FashionMNIST, CIFAR10  
 from torch.utils.data import DataLoader
 from torchvision.models import resnet18
 
@@ -22,7 +22,7 @@ class AddGaussianNoise(object):
         return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
 
 
-def get_data_loaders(batch_size=64):
+def get_data_loaders(batch_size=64, dataset='FashionMNIST'):
     transform_train = transforms.Compose([
         transforms.Resize(32),
         transforms.RandomHorizontalFlip(),
@@ -41,9 +41,48 @@ def get_data_loaders(batch_size=64):
         transforms.Normalize((0.5,), (0.5,))
     ])
 
-    train_dataset = FashionMNIST(root='./data', train=True, transform=transform_train, download=True)
-    train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [50000, 10000])
-    test_dataset = FashionMNIST(root='./data', train=False, transform=transform_test, download=True)
+    if dataset == 'FashionMNIST':
+        transform_train = transforms.Compose([
+            transforms.Resize(32),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize((0.5,), (0.5,)),
+            AddGaussianNoise(0., 0.1),
+        ])
+
+        transform_test = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+        train_dataset = FashionMNIST(root='./data', train=True, transform=transform_train, download=True)
+        train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [50000, 10000])
+        test_dataset = FashionMNIST(root='./data', train=False, transform=transform_test, download=True)
+    elif dataset == 'CIFAR10':
+        transform_train = transforms.Compose([
+            transforms.Resize(32),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            AddGaussianNoise(0., 0.1),
+        ])
+
+        transform_test = transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
+        train_dataset = CIFAR10(root='./data', train=True, transform=transform_train, download=True)
+        train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [45000, 5000])
+        test_dataset = CIFAR10(root='./data', train=False, transform=transform_test, download=True)
+    else:
+        raise ValueError(f"Dataset {dataset} not supported.")
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size)
@@ -132,15 +171,16 @@ def save_model(model, save_folder='./results/cnn_fmnist'):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train and save a ResNet model on FashionMNIST dataset.')
+    parser = argparse.ArgumentParser(description='Train and save a ResNet model on the given dataset.')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size for data loaders')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs for training')
     parser.add_argument('--learning_rate', type=float, default=0.0005, help='Learning rate for the optimizer')
+    parser.add_argument('--dataset', type=str, default='FashionMNIST', help='Dataset to use for training')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use for training (cuda or cpu)')
     parser.add_argument('--output_path', type=str, default='./results/cnn_fmnist', help='Path to save the model')
     args = parser.parse_args()
 
-    train_loader, val_loader, test_loader = get_data_loaders(batch_size=args.batch_size)
+    train_loader, val_loader, test_loader = get_data_loaders(batch_size=args.batch_size, dataset=args.dataset)
     model = get_model()
     model = train_model(model, train_loader, val_loader, num_epochs=args.num_epochs,
                         learning_rate=args.learning_rate, device=args.device)

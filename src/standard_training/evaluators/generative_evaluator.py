@@ -23,6 +23,7 @@ class GenerativeModelEvaluator(BaseEvaluator):
         if self.device == "cuda":
             self.fid.cuda()
 
+    @torch.no_grad()
     def evaluate_fid(self, model, dataloader, epoch: int = 0, fid_images: int = 10000, gensteps: int = 20) -> float:
         print("Evaluating FID...")
         self.fid.reset()

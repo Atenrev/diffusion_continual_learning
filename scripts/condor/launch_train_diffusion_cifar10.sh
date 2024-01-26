@@ -1,0 +1,1 @@
+condor_send -c 'CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES#CUDA} python train_iid.py --dataset "cifar10" --model_config_path "configs/model/ddim_32_3ch.json" --num_epochs 500 --save_every 50 --seed 42 --use_wandb --training_type diffusion'

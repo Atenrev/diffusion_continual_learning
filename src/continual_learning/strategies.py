@@ -21,7 +21,7 @@ from avalanche.training.templates import SupervisedTemplate
 from avalanche.logging import InteractiveLogger
 from diffusers import SchedulerMixin
 
-from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin, TrainGeneratorAfterExpPlugin
+from src.continual_learning.plugins import UpdatedGenerativeReplayPlugin, TrainGeneratorAfterExpPlugin, OldGeneratorManager
 from src.continual_learning.metrics.diffusion_metrics import DiffusionMetricsMetric
 
 
@@ -333,9 +333,10 @@ class BaseDiffusionTraining(SupervisedTemplate):
 
         if self.untrained_generator:
             return super()._before_training_exp(**kwargs)
-
-        self.old_model = deepcopy(self.model)
-        self.old_model.eval()
+        
+        self.old_model = OldGeneratorManager.update_and_get_old_generator(
+            self.model, self.experience.current_experience
+        )
         return super()._before_training_exp(**kwargs)
 
     def _after_training_exp(self, **kwargs):
@@ -478,9 +479,21 @@ class GaussianDistillationDiffusionTraining(BaseDiffusionTraining):
                 self.replay_start_timestep, self.scheduler.config.num_train_timesteps, (
                     batch_size,), device=self.device
             ).long()
+
+            if torch.cuda.device_count() > 1:
+                noise_replay_in_old_device = noise_replay.to(torch.device("cuda:1"))
+                timesteps_replay_in_old_device = timesteps_replay.to(torch.device("cuda:1"))
+            else:
+                noise_replay_in_old_device = noise_replay
+                timesteps_replay_in_old_device = timesteps_replay
+
             with torch.no_grad():
                 noise_prediction = self.old_model(
-                    noise_replay, timesteps_replay, return_dict=False)[0]
+                    noise_replay_in_old_device, 
+                    timesteps_replay_in_old_device, 
+                    return_dict=False
+                )[0].to(self.device)
+                
             noisy_images = torch.cat([noisy_images, noise_replay], dim=0)
             self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
             self.timesteps = torch.cat(
@@ -522,9 +535,21 @@ class GaussianSymmetryDistillationDiffusionTraining(BaseDiffusionTraining):
                 noise_replay[t_333_1_idx, :, sample_size//2:, :], dims=[2,])
             noise_replay[t_333_1_idx, :, :, :sample_size//2] = torch.flip(
                 noise_replay[t_333_1_idx, :, :, sample_size//2:], dims=[3,])
+
+            if torch.cuda.device_count() > 1:
+                noise_replay_in_old_device = noise_replay.to(torch.device("cuda:1"))
+                timesteps_replay_in_old_device = timesteps_replay.to(torch.device("cuda:1"))
+            else:
+                noise_replay_in_old_device = noise_replay
+                timesteps_replay_in_old_device = timesteps_replay
+            
             with torch.no_grad():
                 noise_prediction = self.old_model(
-                    noise_replay, timesteps_replay, return_dict=False)[0]
+                    noise_replay_in_old_device, 
+                    timesteps_replay_in_old_device, 
+                    return_dict=False
+                )[0].to(self.device)
+                
             noisy_images = torch.cat([noisy_images, noise_replay], dim=0)
             self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
             self.timesteps = torch.cat(
@@ -561,9 +586,21 @@ class LwFDistillationDiffusionTraining(BaseDiffusionTraining):
 
         if not self.untrained_generator:
             assert self.old_model is not None
+
+            if torch.cuda.device_count() > 1:
+                noisy_images_in_old_device = noisy_images.to(torch.device("cuda:1"))
+                timesteps_in_old_device = self.timesteps.to(torch.device("cuda:1"))
+            else:
+                noisy_images_in_old_device = noisy_images
+                timesteps_in_old_device = self.timesteps
+
             with torch.no_grad():
                 noise_prediction = self.old_model(
-                    noisy_images, self.timesteps, return_dict=False)[0]
+                    noisy_images_in_old_device, 
+                    timesteps_in_old_device, 
+                    return_dict=False
+                )[0].to(self.device)
+
             self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
 
         return self.model(noisy_images, self.timesteps, return_dict=False)[0]
@@ -593,16 +630,28 @@ class FullGenerationDistillationDiffusionTraining(BaseDiffusionTraining):
             ).long()
 
             replay_images = self.old_model.generate(
-                batch_size, generation_steps=self.teacher_steps, eta=self.teacher_eta)
-            noisy_replay_images = self.scheduler.add_noise(
+                batch_size, 
+                generation_steps=self.teacher_steps, 
+                eta=self.teacher_eta
+            ).to(self.device)
+            replay_images = self.scheduler.add_noise(
                 replay_images, noise_replay, timesteps_replay)
+            
+            if torch.cuda.device_count() > 1:
+                noisy_replay_images_in_old_generator = replay_images.to(torch.device("cuda:1"))
+                timesteps_replay_in_old_generator = timesteps_replay.to(torch.device("cuda:1"))
+            else:
+                noisy_replay_images_in_old_generator = replay_images
+                timesteps_replay_in_old_generator = timesteps_replay
 
             with torch.no_grad():
                 noise_prediction = self.old_model(
-                    noisy_replay_images, timesteps_replay, return_dict=False)[0]
+                    noisy_replay_images_in_old_generator, 
+                    timesteps_replay_in_old_generator,
+                    return_dict=False
+                )[0].to(self.device)
 
-            noisy_images = torch.cat(
-                [noisy_images, noisy_replay_images], dim=0)
+            noisy_images = torch.cat([noisy_images, replay_images], dim=0)
             self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
             self.timesteps = torch.cat(
                 [self.timesteps, timesteps_replay], dim=0)
@@ -632,12 +681,29 @@ class PartialGenerationDistillationDiffusionTraining(BaseDiffusionTraining):
                     batch_size,), device=self.device
             ).long()
 
+            if torch.cuda.device_count() > 1:
+                timesteps_replay_in_old_generator = timesteps_replay.to(torch.device("cuda:1"))
+            else:
+                timesteps_replay_in_old_generator = timesteps_replay
+
             replay_images = self.old_model.generate(
-                batch_size, timesteps_replay, generation_steps=self.teacher_steps, eta=self.teacher_eta)
+                batch_size, 
+                timesteps_replay_in_old_generator, 
+                generation_steps=self.teacher_steps, 
+                eta=self.teacher_eta
+            ).to(self.device)
+
+            if torch.cuda.device_count() > 1:
+                replay_images_in_old_generator = replay_images.to(torch.device("cuda:1"))
+            else:
+                replay_images_in_old_generator = replay_images
 
             with torch.no_grad():
                 noise_prediction = self.old_model(
-                    replay_images, timesteps_replay, return_dict=False)[0]
+                    replay_images_in_old_generator, 
+                    timesteps_replay_in_old_generator, 
+                    return_dict=False
+                )[0].to(self.device)
 
             noisy_images = torch.cat([noisy_images, replay_images], dim=0)
             self.noise_x = torch.cat([self.noise_x, noise_prediction], dim=0)
@@ -671,7 +737,10 @@ class NoDistillationDiffusionTraining(BaseDiffusionTraining):
             ).long()
 
             replay_images = self.old_model.generate(
-                batch_size, generation_steps=self.teacher_steps, eta=self.teacher_eta)
+                batch_size, 
+                generation_steps=self.teacher_steps, 
+                eta=self.teacher_eta
+            ).to(self.device)
             noisy_replay_images = self.scheduler.add_noise(
                 replay_images, noise_replay, timesteps_replay)
 

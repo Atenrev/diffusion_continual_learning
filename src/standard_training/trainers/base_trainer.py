@@ -18,6 +18,7 @@ class BaseTrainer(ABC):
                  eval_mb_size: int,
                  device: str,
                  evaluator: Optional[BaseEvaluator] = None,
+                 save_path: str = "./results/diffusion",
                  ):
         """
         Class for training generative models in a traditional way.

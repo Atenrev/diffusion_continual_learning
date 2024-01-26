@@ -1,0 +1,11 @@
+{
+    "model": {
+        "name": "cnn",
+        "n_classes": 10,
+        "channels": 3
+    },
+    "optimizer": {
+        "name": "adam",
+        "lr": 0.001
+    }
+}
