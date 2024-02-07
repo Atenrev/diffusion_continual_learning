@@ -23,24 +23,6 @@ class AddGaussianNoise(object):
 
 
 def get_data_loaders(batch_size=64, dataset='FashionMNIST'):
-    transform_train = transforms.Compose([
-        transforms.Resize(32),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(10),
-        transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
-        transforms.Normalize((0.5,), (0.5,)),
-        AddGaussianNoise(0., 0.1),
-    ])
-
-    transform_test = transforms.Compose([
-        transforms.Resize(32),
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
-        transforms.Normalize((0.5,), (0.5,))
-    ])
-
     if dataset == 'FashionMNIST':
         transform_train = transforms.Compose([
             transforms.Resize(32),

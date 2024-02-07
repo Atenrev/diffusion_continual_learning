@@ -7,19 +7,29 @@ import random
 
 if __name__ == "__main__":
     # Define the path where the examples will be saved
-    output_folder = "examples"
+    output_folder = "examples_cifar10"
     os.makedirs(output_folder, exist_ok=True)
 
     # Define the Fashion MNIST dataset and dataloader
     transform = transforms.Compose([transforms.ToTensor()])
-    dataset = torchvision.datasets.FashionMNIST(root="./data", train=True, download=True, transform=transform)
+    dataset = torchvision.datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
-    # Define class names for Fashion MNIST {0, 2}, {3, 5}, {1, 4}, {9, 6}, {8, 7}
+    # Define class names for Fashion MNIST 
     class_names = [
-        "T-shirt/top", "Trouser", "Pullover", "Dress", "Coat",
-        "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot"
+        "airplane",
+        "automobile",
+        "bird",
+        "cat",
+        "deer",
+        "dog",
+        "frog",
+        "horse",
+        "ship",
+        "truck",
     ]
+    # Task orders: {3, 7}, {8, 0}, {1, 4}, {2, 6}, {9, 5}
+    task_orders = [1, 2, 3, 0, 2, 4, 3, 0, 1, 4]
 
     # Initialize counters for each class
     class_counters = {class_name: 0 for class_name in class_names}
@@ -28,10 +38,12 @@ if __name__ == "__main__":
     # Loop through the dataset and save random samples for each class
     for image, label in dataloader:
         class_name = class_names[label]
+        task_order = task_orders[label]
+
         if class_counters[class_name] < num_samples_per_class:
             # Generate a random file name
             random_suffix = random.randint(0, 99999)
-            file_name = f"{class_name.replace('/', '_')}_{class_counters[class_name]}_{random_suffix}.png"
+            file_name = f"{class_name.replace('/', '_')}_{class_counters[class_name]}_task_{task_order}_{random_suffix}.png"
             file_path = os.path.join(output_folder, file_name)
 
             # Save the image
@@ -44,4 +56,4 @@ if __name__ == "__main__":
         if all(count >= num_samples_per_class for count in class_counters.values()):
             break
 
-    print("Random samples saved to the 'examples' folder.")
+    print("Random samples saved to the 'examples_cifar10' folder.")

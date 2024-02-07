@@ -646,7 +646,11 @@ def run_experiment(args, seed: int, device: torch.device):
         return
 
     if strategy is not None:
-        generator_strategy = strategy.generator_strategy
+        # --- STRATEGY LOAD
+        if hasattr(strategy, "generator_strategy"):
+            generator_strategy = strategy.generator_strategy
+        else:
+            generator_strategy = None
     else:
         # --- STRATEGY CREATION
         if args.generator_type is None or args.generator_type == "None":
