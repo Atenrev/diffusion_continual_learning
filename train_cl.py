@@ -52,6 +52,8 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", type=str, default="split_cifar10",
                         choices=["split_cifar10", "split_fmnist", "split_mnist"],
                         help="Dataset to use for the benchmark")
+    parser.add_argument("--kld_clf_path", type=str, default="weights/cnn_fmnist/",
+                        help="Path to the root directory of the KLD classifier weights")
     parser.add_argument("--image_size", type=int, default=32,
                         help="Image size to use for the benchmark")
 
@@ -168,7 +170,7 @@ def get_generator_strategy(
         eta: float = 0.0, 
         lambd: float = 1.0, 
         checkpoint_plugin=None,
-        kld_clf_path: str = "results/cnn_fmnist/",
+        kld_clf_path: str = "weights/cnn_fmnist/",
         ):
     generator_strategy = None
 
@@ -608,7 +610,6 @@ def run_experiment(args, seed: int, device: torch.device):
     # --- BENCHMARK CREATION
     image_size = args.image_size
     benchmark = get_benchmark(args.dataset, image_size, seed)
-    kld_clf_path = "results/cnn_fmnist/" if args.dataset == "split_fmnist" else "results/cnn_cifar10/"
 
     # --- LOGGER CREATION
     loggers = []
@@ -666,7 +667,7 @@ def run_experiment(args, seed: int, device: torch.device):
                 eta=args.eta,
                 checkpoint_plugin=checkpoint_plugin if args.solver_type is None or args.solver_type == "None" else None,
                 lambd=args.lambd,
-                kld_clf_path=kld_clf_path,
+                kld_clf_path=args.kld_clf_path,
             )
 
         if args.solver_type is None or args.solver_type == "None":

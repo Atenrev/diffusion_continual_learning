@@ -109,7 +109,7 @@ class DistributionMetrics(Metric[float]):
 
 class DiffusionMetricsMetric(PluginMetric[float]):
 
-    def __init__(self, device='cuda', weights_path: str = "results/cnn_fmnist/", n_samples: int = 10000, num_classes: int = 10):
+    def __init__(self, device='cuda', weights_path: str = "weights/cnn_fmnist/", n_samples: int = 10000, num_classes: int = 10):
         self.classifier = resnet18()
         self.classifier.fc = nn.Linear(self.classifier.fc.in_features, num_classes)
         self.classifier.to(device)

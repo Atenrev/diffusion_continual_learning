@@ -145,7 +145,7 @@ def evaluate_model(model, test_loader, device='cuda'):
     print(f"Test Accuracy: {100 * correct / total:.2f}%")
 
 
-def save_model(model, save_folder='./results/cnn_fmnist'):
+def save_model(model, save_folder='./weights/cnn_fmnist'):
     os.makedirs(save_folder, exist_ok=True)
     save_path = os.path.join(save_folder, 'resnet.pth')
     torch.save(model.state_dict(), save_path)
@@ -159,7 +159,7 @@ def main():
     parser.add_argument('--learning_rate', type=float, default=0.0005, help='Learning rate for the optimizer')
     parser.add_argument('--dataset', type=str, default='FashionMNIST', help='Dataset to use for training')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use for training (cuda or cpu)')
-    parser.add_argument('--output_path', type=str, default='./results/cnn_fmnist', help='Path to save the model')
+    parser.add_argument('--output_path', type=str, default='./weights/cnn_fmnist', help='Path to save the model')
     args = parser.parse_args()
 
     train_loader, val_loader, test_loader = get_data_loaders(batch_size=args.batch_size, dataset=args.dataset)

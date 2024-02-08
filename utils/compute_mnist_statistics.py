@@ -39,7 +39,7 @@ def __parse_args() -> argparse.Namespace:
     parser.add_argument("--model_config_path", type=str,
                         default="configs/model/resnet.json")
     parser.add_argument("--weights_path", type=str,
-                        default="results/cnn_fmnist/")
+                        default="weights/cnn_fmnist/")
     parser.add_argument("--generator_path", type=str,
                         # default="results_fuji/smasipca/iid_results/fashion_mnist/diffusion/generation/ddim_medium_mse_teacher_2/42/best_model/")
                         default="results/fashion_mnist/diffusion/None/ddim_medium_mse/42/best_model/")
