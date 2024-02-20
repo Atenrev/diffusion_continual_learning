@@ -20,7 +20,7 @@ To use the code, first clone the repository:
 
 ```bash
 git clone https://github.com/Atenrev/diffusion_continual_learning.git
-cd difussion_continual_learning
+cd diffusion_continual_learning
 ```
 
 Then, assuming you have Python 3.9.16 set up, install the required libraries:
