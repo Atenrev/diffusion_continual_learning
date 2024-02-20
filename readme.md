@@ -19,7 +19,7 @@ This code makes use of the following libraries:
 To use the code, first clone the repository:
 
 ```bash
-git clone https://github.com/Atenrev/difussion_continual_learning.git
+git clone https://github.com/Atenrev/diffusion_continual_learning.git
 cd difussion_continual_learning
 ```
 
