@@ -31,6 +31,7 @@ from src.continual_learning.strategies import (
     NoDistillationDiffusionTraining,
     NaiveDiffusionTraining,
     CumulativeDiffusionTraining,
+    ReplayDiffusionTraining,
     EWCDiffusionTraining,
     SIDiffusionTraining,
     VAETraining
@@ -354,6 +355,21 @@ def get_generator_strategy(
                 evaluator=gen_eval_plugin,
                 train_timesteps=model_config.scheduler.train_timesteps,
                 plugins=plugins,
+            )
+        elif strategy_config.strategy == "replay":
+            generator_strategy = ReplayDiffusionTraining(
+                generator_model,
+                noise_scheduler,
+                torch.optim.Adam(generator_model.parameters(),
+                                lr=model_config.optimizer.lr),
+                train_mb_size=strategy_config.train_batch_size,
+                train_epochs=strategy_config.epochs,
+                eval_mb_size=strategy_config.eval_batch_size,
+                device=device,
+                evaluator=gen_eval_plugin,
+                train_timesteps=model_config.scheduler.train_timesteps,
+                plugins=plugins,
+                mem_size=strategy_config.replay_size,
             )
         elif strategy_config.strategy == "ewc":
             raise NotImplementedError("EWC is not implemented for diffusion models yet")

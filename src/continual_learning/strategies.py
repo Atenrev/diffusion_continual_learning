@@ -9,6 +9,7 @@ from torch.optim import Optimizer
 from avalanche.models import VAE_loss
 from avalanche.training.plugins.evaluation import default_evaluator
 from avalanche.training.plugins import (
+    ReplayPlugin,
     EWCPlugin,
     SynapticIntelligencePlugin,
     SupervisedPlugin,
@@ -433,6 +434,52 @@ class CumulativeDiffusionTraining(NaiveDiffusionTraining):
                 [self.dataset, self.experience.dataset]
             )
         self.adapted_dataset = self.dataset
+
+
+class ReplayDiffusionTraining(NaiveDiffusionTraining):
+    def __init__(
+        self,
+        model: nn.Module,
+        scheduler: SchedulerMixin,
+        optimizer: Optimizer,
+        criterion=nn.MSELoss(),
+        train_mb_size: int = 1,
+        train_epochs: int = 1,
+        eval_mb_size: int = None,
+        device=None,
+        plugins: Optional[List[SupervisedPlugin]] = None,
+        evaluator: EvaluationPlugin = get_default_generator_logger(),
+        eval_every=-1,
+        train_timesteps: int = 1000,
+        replay_start_timestep: int = 0,
+        generation_timesteps: int = 10,
+        mem_size: int = 1000,
+        **base_kwargs
+    ):
+        rp = ReplayPlugin(mem_size)
+
+        if plugins is None:
+            plugins = [rp]
+        else:
+            plugins.append(rp)
+            
+        super().__init__(
+            model,
+            scheduler,
+            optimizer,
+            criterion=criterion,
+            train_mb_size=train_mb_size,
+            train_epochs=train_epochs,
+            eval_mb_size=eval_mb_size,
+            device=device,
+            plugins=plugins,
+            evaluator=evaluator,
+            eval_every=eval_every,
+            train_timesteps=train_timesteps,
+            replay_start_timestep=replay_start_timestep,
+            generation_timesteps=generation_timesteps,
+            **base_kwargs
+        )
 
         
 class EWCDiffusionTraining(NaiveDiffusionTraining):
