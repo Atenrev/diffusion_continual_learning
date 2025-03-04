@@ -154,10 +154,19 @@ python utils/generate_report_cl.py --experiments_path results/continual_learning
 If you use this code in your research, please cite the following paper:
 
 ```
-@article{masip2023continual,
-   title={Continual Learning of Diffusion Models with Generative Distillation},
-   author={Sergi Masip and Pau Rodriguez and Tinne Tuytelaars and Gido M. van de Ven},
-   journal={arXiv preprint arXiv:2311.14028},
-   year={2023}
- }
+@InProceedings{pmlr-v274-masip25a,
+  title = 	 {Continual Learning of Diffusion Models with Generative Distillation},
+  author =       {Masip, Sergi and Rodriguez, Pau and Tuytelaars, Tinne and Ven, Gido M van de},
+  booktitle = 	 {Proceedings of The 3rd Conference on Lifelong Learning Agents},
+  pages = 	 {431--456},
+  year = 	 {2025},
+  editor = 	 {Lomonaco, Vincenzo and Melacci, Stefano and Tuytelaars, Tinne and Chandar, Sarath and Pascanu, Razvan},
+  volume = 	 {274},
+  series = 	 {Proceedings of Machine Learning Research},
+  month = 	 {29 Jul--01 Aug},
+  publisher =    {PMLR},
+  pdf = 	 {https://raw.githubusercontent.com/mlresearch/v274/main/assets/masip25a/masip25a.pdf},
+  url = 	 {https://proceedings.mlr.press/v274/masip25a.html}
+}
+
 ```
